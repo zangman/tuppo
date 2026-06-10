@@ -1,0 +1,14 @@
+v
+token
+exa_token
+*.pyc
+node_modules
+whatsapp.db
+.wwebjs_auth
+package-lock.json
+.wwebjs_cache
+credentials.json
+token.json
+config.yaml
+config.json
+pi-session*.html

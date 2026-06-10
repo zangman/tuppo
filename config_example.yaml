@@ -1,0 +1,107 @@
+# ============================================================
+#  Personal Coordinator Bot — Configuration
+# ============================================================
+# 1. Copy this file:  cp config_example.yaml config.yaml
+# 2. Fill in your own values below.
+# 3. Do NOT commit config.yaml (it's in .gitignore).
+# ============================================================
+
+owner:
+  # Your display name — used by the WhatsApp autoresponder when
+  # referring to you (e.g. "[Owner]'s assistant").
+  name: "YourName"
+
+  # Your Telegram user ID.
+  # To find it, message @userinfobot on Telegram and it will
+  # reply with your numeric ID.
+  chat_id: "123456789"
+
+  # Your WhatsApp phone number (digits only, no + or spaces).
+  # Used by the WhatsApp gateway to detect @mentions in groups.
+  # Example: if your number is +65 8123 4567, enter "6581234567".
+  whatsapp_id: "65XXXXXXXXXX"
+
+  # Your IANA timezone (e.g. Asia/Singapore, America/New_York).
+  # Used for calendar events and scheduling.
+  # Full list: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
+  timezone: "Asia/Singapore"
+
+  # Optional Google Calendar ID for a "home" (family/shared) calendar.
+  # Found in Google Calendar → Settings → Calendar you want →
+  # "Integrate calendar" → Calendar ID.
+  # Leave blank or remove if you only use your primary calendar.
+  home_calendar_id: ""
+
+  # Personal status — the LLM reads these for context.
+  # You can update them via Telegram by asking the bot to change
+  # your status, or edit them here directly.
+  status:
+    current_location: "Unknown"
+    current_focus: "Unknown"
+    availability: "Available"
+
+
+llm:
+  # Base URL of your llama.cpp server (or any OpenAI-compatible
+  # API). The bot hits <base_url>/v1/chat/completions.
+  base_url: "http://localhost:8080"
+
+searxng:
+  # URL for your local SearXNG instance. Used for web searches.
+  # Points to the JSON API endpoint (usually /search).
+  # If you don't use SearXNG, the web search tool will still work
+  # but will fail with a connection error.
+  # Docker install guide: https://docs.searxng.org/admin/installation-docker.html
+  url: "http://localhost:8081/search"
+
+
+whatsapp:
+  autoresponder:
+    # Master on/off switch for the WhatsApp autoresponder.
+    # Toggle via /wa_on and /wa_off on Telegram too.
+    enabled: false
+
+    # Test mode — when true, the bot also responds to your own
+    # messages (sender == chat_id) so you can test without
+    # adding yourself to allowed_targets.
+    test_mode: false
+
+    # Private contacts allowed to receive autoresponses.
+    # IDs end in @c.us or @lid. To find a contact's ID:
+    #   send them a test message via the WhatsApp gateway,
+    #   then run /wa_list on Telegram to see their ID.
+    allowed_targets:
+      - "1234567890@c.us"
+
+    # WhatsApp groups where the bot responds when you're
+    # @mentioned or replied to. IDs end in @g.us.
+    # Use /wa_group_add <group_name> on Telegram to add groups.
+    allowed_groups:
+      - "1234567890@g.us"
+
+    # Random delay (in seconds) before sending autoresponses
+    # to make timing feel more human-like.
+    response_delay:
+      min_seconds: 5
+      max_seconds: 15
+
+    # Fallback phrase the LLM can output when it can't form
+    # a useful answer. If the LLM outputs exactly this string,
+    # the bot stays silent instead of sending a response.
+    fallback_message: "not sure"
+
+    # How many recent messages the bot reads as context before
+    # responding. Higher = more context but slower responses.
+    context_window:
+      enabled: true
+      private_message_count: 10
+      group_message_count: 10
+
+    # Rate limiting to prevent bot-on-bot loops and spam.
+    # "window_seconds" is the time window, "max_..." is the
+    # message limit within that window.
+    safety_fuse:
+      private_max_messages: 3
+      private_window_seconds: 60
+      group_max_per_sender: 2
+      group_window_seconds: 60
