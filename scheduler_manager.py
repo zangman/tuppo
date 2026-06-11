@@ -2,7 +2,7 @@ import asyncio
 import os
 import sqlite3
 import json
-import logging
+from absl import logging
 import requests
 import datetime
 import pytz
@@ -29,13 +29,13 @@ async def run_scheduler_cycle(bot, owner_id):
         (now_utc.isoformat(),)
     )
     tasks = cursor.fetchall()
-    print(f"--- Scheduler Tick: Found {len(tasks)} due tasks (Current UTC: {now_utc.isoformat()}) ---")
+    logging.info(f"--- Scheduler Tick: Found {len(tasks)} due tasks (Current UTC: {now_utc.isoformat()}) ---")
     
     for task in tasks:
         task_id, o_id, exec_time, action, params_json, cron, status = task
         params = json.loads(params_json)
         
-        print(f"Executing scheduled task {task_id}: {action}")
+        logging.info(f"EXECUTING TASK: {task_id} action={action} params={json.dumps(params, default=str)[:300]}")
         
         try:
             # Execute action
@@ -67,7 +67,7 @@ async def run_scheduler_cycle(bot, owner_id):
                         sent_ok += 1
                     else:
                         sent_fail += 1
-                        print(f"  Failed to send to {rid}: {resp.status_code} {resp.text}")
+                        logging.error(f"  Failed to send to {rid}: {resp.status_code} {resp.text}")
 
                 status_msg = f"✅ Sent to {sent_ok} recipient(s)."
                 if sent_fail > 0:
@@ -80,7 +80,7 @@ async def run_scheduler_cycle(bot, owner_id):
                 
             elif action == 'llm_task':
                 prompt = params.get('prompt', 'Perform the scheduled task')
-                print(f"Executing dynamic LLM task: {prompt}")
+                logging.info(f"EXECUTING LLM TASK: prompt={prompt}")
                 # Use the admin session format 'tg_<id>' to ensure the LLM has tool access
                 session_id = f"tg_{owner_id}" if not str(owner_id).startswith("tg_") else owner_id
                 response, _, _ = await core_brain.get_llm_response(session_id, prompt)
@@ -103,7 +103,7 @@ async def run_scheduler_cycle(bot, owner_id):
             
             conn.commit()
         except Exception as e:
-            print(f"Error executing task {task_id}: {e}")
+            logging.error(f"Error executing task {task_id}: {e}")
             # Mark as failed to avoid infinite retry loops on broken params
             cursor.execute("UPDATE scheduled_tasks SET status = 'failed' WHERE task_id = ?", (task_id,))
             conn.commit()
@@ -114,10 +114,10 @@ async def scheduler_loop(bot, owner_id):
     """
     Background loop that runs the scheduler cycle every 30 seconds.
     """
-    print(f"Scheduler background loop started for owner {owner_id}.")
+    logging.info(f"Scheduler background loop started for owner {owner_id}.")
     while True:
         try:
             await run_scheduler_cycle(bot, owner_id)
         except Exception as e:
-            print(f"Scheduler loop error: {e}")
+            logging.error(f"Scheduler loop error: {e}")
         await asyncio.sleep(30)
