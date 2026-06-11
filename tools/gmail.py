@@ -61,7 +61,7 @@ def get_gmail_service():
 
 
 def check_inbox(max_results: int = 10, query: str = None) -> str:
-    """List unread emails with metadata. Uses format='metadata' to avoid full-body fetches."""
+    """List unread emails. Fetches message IDs, then retrieves each message for headers."""
     max_results = min(max_results, 50)
     service = get_gmail_service()
     if isinstance(service, str):
@@ -69,27 +69,32 @@ def check_inbox(max_results: int = 10, query: str = None) -> str:
 
     try:
         q = f"is:unread {query}" if query else "is:unread"
+        # Fetch message IDs first, then get full details for headers
+        # Note: avoid 'format' kwarg — it shadows Python builtin and breaks on some versions
         results = service.users().messages().list(
             userId='me',
             maxResults=max_results,
-            q=q,
-            format='metadata',
-            metadataHeaders=['subject', 'from', 'date']
+            q=q
         ).execute()
 
         messages = results.get('messages', [])
         if not messages:
             return "No unread emails in your inbox."
 
+        # Fetch each message (format defaults to 'full')
         lines = [f"Unread emails ({len(messages)} of {results.get('resultSizeEstimate', '?')} total):"]
-        for msg in messages:
-            payload = msg.get('snippet', '(no preview)')
-            metadata = msg.get('payload', {})
+        for msg_id_obj in messages:
+            msg_id = msg_id_obj['id']
+            msg = service.users().messages().get(
+                userId='me', id=msg_id
+            ).execute()
 
-            headers = metadata.get('headers', [])
+            payload = msg.get('payload', {})
+            headers = payload.get('headers', [])
             subject = ''
             frm = ''
             date = ''
+            snippet = msg.get('snippet', '(no preview)')
             for h in headers:
                 if h['name'] == 'Subject':
                     subject = h['value'] or '(no subject)'
@@ -99,10 +104,10 @@ def check_inbox(max_results: int = 10, query: str = None) -> str:
                     date = _rfc2822_to_local(h['value'])
 
             # Truncate long previews
-            preview = (payload[:150] + '...') if len(payload) > 150 else payload
+            preview = (snippet[:150] + '...') if len(snippet) > 150 else snippet
 
             lines.append(
-                f"  [{msg['id']}] {date}\n"
+                f"  [{msg_id}] {date}\n"
                 f"    From: {frm}\n"
                 f"    Subject: {subject}\n"
                 f"    Preview: {preview}\n"
@@ -123,7 +128,7 @@ def read_email(message_id: str) -> str:
 
     try:
         msg = service.users().messages().get(
-            userId='me', id=message_id, format='full'
+            userId='me', id=message_id
         ).execute()
 
         # Extract headers
