@@ -83,8 +83,10 @@ def check_inbox(max_results: int = 10, query: str = None) -> str:
 
         # Fetch each message (format defaults to 'full')
         lines = [f"Unread emails ({len(messages)} of {results.get('resultSizeEstimate', '?')} total):"]
+        fetched_ids = []
         for msg_id_obj in messages:
             msg_id = msg_id_obj['id']
+            fetched_ids.append(msg_id)
             msg = service.users().messages().get(
                 userId='me', id=msg_id
             ).execute()
@@ -112,6 +114,16 @@ def check_inbox(max_results: int = 10, query: str = None) -> str:
                 f"    Subject: {subject}\n"
                 f"    Preview: {preview}\n"
             )
+
+        # Auto-mark fetched emails as read
+        if fetched_ids:
+            try:
+                service.users().messages().batchModify(
+                    userId='me',
+                    body={'ids': fetched_ids, 'removeLabelIds': ['UNREAD']}
+                ).execute()
+            except Exception as e:
+                logging.error(f"Gmail mark as read error: {e}")
 
         return '\n'.join(lines)
 
