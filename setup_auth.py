@@ -24,7 +24,8 @@ def main():
         token.write(creds.to_json())
     
     print("\n✅ Success! 'token.json' has been created.")
-    print("Now, upload 'token.json' to your server in /home/lenny/myp/telegram_bot/")
+    ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+    print(f"Now, upload 'token.json' to your server in {ROOT_DIR}/")
 
 if __name__ == '__main__':
     main()

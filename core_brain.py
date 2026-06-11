@@ -1,12 +1,16 @@
 import asyncio
 import copy
 import json
+import os
 import requests
 import logging
 import uuid
 import sqlite3
 import datetime
 import pytz
+
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+
 import util.get_time as get_time
 import util.config as config
 import tools.calc as calc
@@ -429,7 +433,7 @@ def _send_scheduling_confirmation(task_id, action, params, execution_time, cron)
   import html as html_mod
 
   try:
-    with open('/home/lenny/myp/telegram_bot/token', 'r') as f:
+    with open(os.path.join(ROOT_DIR, 'token'), 'r') as f:
       bot_token = f.read().strip()
     owner = _CFG.get('owner', {})
     owner_id = owner.get('owner_chat_id', owner.get('chat_id', ''))
@@ -568,7 +572,7 @@ async def execute_tool(tc, session_id):
     # Flatten args into params (drop execution_time and cron_expression)
     params = {k: v for k, v in args.items() if k not in ('execution_time', 'cron_expression')}
 
-    conn = sqlite3.connect('/home/lenny/myp/telegram_bot/whatsapp.db')
+    conn = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'))
     cursor = conn.cursor()
     cursor.execute(
         "INSERT INTO scheduled_tasks (task_id, owner_id, execution_time, action_type, action_params, cron_expression, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -582,7 +586,7 @@ async def execute_tool(tc, session_id):
 
     return format_msg(tool_call_id, f"Task scheduled successfully (ID: {task_id}).")
   elif tool_name == 'list_scheduled_tasks':
-    conn = sqlite3.connect('/home/lenny/myp/telegram_bot/whatsapp.db')
+    conn = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'))
     cursor = conn.cursor()
     cursor.execute("SELECT task_id, execution_time, action_type, action_params FROM scheduled_tasks WHERE status = 'pending'")
     tasks = cursor.fetchall()
@@ -597,7 +601,7 @@ async def execute_tool(tc, session_id):
   elif tool_name == 'cancel_scheduled_task':
     args = json.loads(tc['function']['arguments'])
     task_id = args.get('task_id')
-    conn = sqlite3.connect('/home/lenny/myp/telegram_bot/whatsapp.db')
+    conn = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'))
     cursor = conn.cursor()
     cursor.execute("UPDATE scheduled_tasks SET status = 'cancelled' WHERE task_id = ?", (task_id,))
     conn.commit()
@@ -659,7 +663,7 @@ async def execute_tool(tc, session_id):
   elif tool_name == 'find_whatsapp_chat':
     args = json.loads(tc['function']['arguments'])
     name = args.get('name', '')
-    conn = sqlite3.connect('/home/lenny/myp/telegram_bot/whatsapp.db', timeout=10.0)
+    conn = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'), timeout=10.0)
     cursor = conn.cursor()
     cursor.execute(
         "SELECT chat_id, display_name FROM contacts WHERE display_name LIKE ? ORDER BY last_seen DESC",
@@ -679,7 +683,7 @@ async def execute_tool(tc, session_id):
     chat_id = args.get('chat_id')
     recipient_name = args.get('recipient_name')
     message_text = args.get('message_text')
-    conn = sqlite3.connect('/home/lenny/myp/telegram_bot/whatsapp.db', timeout=10.0)
+    conn = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'), timeout=10.0)
     cursor = conn.cursor()
     cursor.execute(
         "INSERT INTO whatsapp_proposals (proposal_id, chat_id, recipient_name, message_text, status) VALUES (?, ?, ?, ?, ?)",
@@ -689,14 +693,14 @@ async def execute_tool(tc, session_id):
     conn.close()
     return format_msg(tool_call_id, f"[Proposal: {proposal_id}]")
   elif tool_name == 'count_pending_messages':
-    conn = sqlite3.connect('/home/lenny/myp/telegram_bot/whatsapp.db', timeout=10.0)
+    conn = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'), timeout=10.0)
     cursor = conn.cursor()
     cursor.execute("SELECT COUNT(*) FROM messages_for_owner WHERE read_status = 'unread'")
     count = cursor.fetchone()[0]
     conn.close()
     return format_msg(tool_call_id, f"You have {count} pending message(s).")
   elif tool_name == 'get_pending_messages':
-    conn = sqlite3.connect('/home/lenny/myp/telegram_bot/whatsapp.db', timeout=10.0)
+    conn = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'), timeout=10.0)
     cursor = conn.cursor()
     cursor.execute(
         "SELECT id, sender_name, sender_id, chat_name, chat_id, message_text, timestamp, read_status FROM messages_for_owner WHERE read_status = 'unread' ORDER BY timestamp DESC"
@@ -716,7 +720,7 @@ async def execute_tool(tc, session_id):
   elif tool_name == 'clear_messages':
     args = json.loads(tc['function']['arguments'])
     mode = args.get('mode', 'all')
-    conn = sqlite3.connect('/home/lenny/myp/telegram_bot/whatsapp.db', timeout=10.0)
+    conn = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'), timeout=10.0)
     cursor = conn.cursor()
     if mode == 'all':
         cursor.execute("UPDATE messages_for_owner SET read_status = 'read' WHERE read_status = 'unread'")

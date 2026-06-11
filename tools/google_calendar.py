@@ -12,13 +12,14 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 import logging
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+ROOT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, ROOT_DIR)
 import util.config as config
 
 # If modifying these scopes, delete the file token.json.
 SCOPES = ['https://www.googleapis.com/auth/calendar.readonly', 'https://www.googleapis.com/auth/calendar.events']
-CREDENTIALS_FILE = '/home/lenny/myp/telegram_bot/credentials.json'
-TOKEN_FILE = '/home/lenny/myp/telegram_bot/token.json'
+CREDENTIALS_FILE = os.path.join(ROOT_DIR, 'credentials.json')
+TOKEN_FILE = os.path.join(ROOT_DIR, 'token.json')
 
 
 def _get_owner() -> dict:
@@ -54,7 +55,7 @@ def _resolve_calendar_id(calendar_id: str) -> str:
 def _notify_calendar_auth_needed(auth_url: str):
     """Send a Telegram notification with the Google Calendar auth URL."""
     try:
-        with open('/home/lenny/myp/telegram_bot/token', 'r') as f:
+        with open(os.path.join(ROOT_DIR, 'token'), 'r') as f:
             bot_token = f.read().strip()
         owner_id = _get_owner_chat_id()
 
@@ -188,7 +189,7 @@ def propose_calendar_event(summary: str = None, start_iso: str = None, end_iso: 
     try:
         # 1. Save proposal to DB
         proposal_id = str(uuid.uuid4())[:8]
-        conn = sqlite3.connect('/home/lenny/myp/telegram_bot/whatsapp.db')
+        conn = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'))
         cursor = conn.cursor()
         cursor.execute(
             "INSERT INTO event_proposals (proposal_id, summary, start_iso, end_iso, description, requester_id) VALUES (?, ?, ?, ?, ?, ?)",
@@ -198,7 +199,7 @@ def propose_calendar_event(summary: str = None, start_iso: str = None, end_iso: 
         conn.close()
 
         # 2. Send Telegram Notification
-        with open('/home/lenny/myp/telegram_bot/token', 'r') as f:
+        with open(os.path.join(ROOT_DIR, 'token'), 'r') as f:
             bot_token = f.read().strip()
 
         owner_id = _get_owner_chat_id()
@@ -210,7 +211,7 @@ def propose_calendar_event(summary: str = None, start_iso: str = None, end_iso: 
         # Look up display name from contacts table
         display_name = requester_id
         try:
-            conn = sqlite3.connect('/home/lenny/myp/telegram_bot/whatsapp.db', timeout=10.0)
+            conn = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'), timeout=10.0)
             cursor = conn.cursor()
             cursor.execute("SELECT display_name FROM contacts WHERE chat_id = ? OR chat_id = ?", [requester_id, requester_id.replace('@c.us', '').replace('@lid', '')])
             row = cursor.fetchone()

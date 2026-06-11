@@ -1,11 +1,14 @@
 import asyncio
 import logging
+import os
 import random
 import sqlite3
 import time
 import requests
 from fastapi import FastAPI, Request
 import uvicorn
+
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 import util.config as config
 import core_brain
@@ -14,7 +17,7 @@ import util.get_time as get_time
 
 WHATSAPP_API_URL = 'http://localhost:3000/send-message'
 WHATSAPP_TAKE_MESSAGE_URL = 'http://localhost:3000/take-message'
-DB_PATH = '/home/lenny/myp/telegram_bot/whatsapp.db'
+DB_PATH = os.path.join(ROOT_DIR, 'whatsapp.db')
 
 app = FastAPI()
 

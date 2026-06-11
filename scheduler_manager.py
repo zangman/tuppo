@@ -1,4 +1,5 @@
 import asyncio
+import os
 import sqlite3
 import json
 import logging
@@ -8,7 +9,8 @@ import pytz
 import core_brain
 from croniter import croniter
 
-DB_PATH = '/home/lenny/myp/telegram_bot/whatsapp.db'
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(ROOT_DIR, 'whatsapp.db')
 WHATSAPP_API_URL = 'http://localhost:3000/send-message'
 
 async def run_scheduler_cycle(bot, owner_id):

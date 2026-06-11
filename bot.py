@@ -1,8 +1,11 @@
 import asyncio
 import json
+import os
 import re
 import sqlite3
 import requests
+
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 import util.get_time as get_time
 import util.get_health as get_health
 import core_brain
@@ -57,7 +60,7 @@ async def wa_groups(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return
   # Try to resolve group names from contacts
   import sqlite3
-  conn = sqlite3.connect('/home/lenny/myp/telegram_bot/whatsapp.db', timeout=10.0)
+  conn = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'), timeout=10.0)
   cursor = conn.cursor()
   lines = ["Allowed groups for autoresponse:"]
   for gid in allowed:
@@ -76,7 +79,7 @@ async def wa_group_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return
   group_query = ' '.join(context.args)
   # Resolve group name to chatId using contacts table
-  conn = sqlite3.connect('/home/lenny/myp/telegram_bot/whatsapp.db', timeout=10.0)
+  conn = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'), timeout=10.0)
   cursor = conn.cursor()
   cursor.execute("SELECT chat_id, display_name FROM contacts WHERE display_name LIKE ?", (f"%{group_query}%",))
   matches = cursor.fetchall()
@@ -117,7 +120,7 @@ async def wa_group_remove(update: Update, context: ContextTypes.DEFAULT_TYPE):
   if group_query in allowed:
     removed = group_query
   else:
-    conn = sqlite3.connect('/home/lenny/myp/telegram_bot/whatsapp.db', timeout=10.0)
+    conn = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'), timeout=10.0)
     cursor = conn.cursor()
     if allowed:
       placeholders = ','.join('?' * len(allowed))
@@ -138,7 +141,7 @@ async def wa_group_remove(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def wa_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
   import sqlite3
-  conn = sqlite3.connect('/home/lenny/myp/telegram_bot/whatsapp.db', timeout=10.0)
+  conn = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'), timeout=10.0)
   cursor = conn.cursor()
   filter_type = ' '.join(context.args) if context.args else ''
 
@@ -174,7 +177,7 @@ async def handle_event_proposal(update: Update, context: ContextTypes.DEFAULT_TY
   data = query.data
   if data.startswith("app_"):
     proposal_id = data[4:]
-    conn = sqlite3.connect('/home/lenny/myp/telegram_bot/whatsapp.db')
+    conn = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'))
     cursor = conn.cursor()
     cursor.execute("SELECT summary, start_iso, end_iso, description, requester_id FROM event_proposals WHERE proposal_id = ?", (proposal_id,))
     row = cursor.fetchone()
@@ -185,7 +188,7 @@ async def handle_event_proposal(update: Update, context: ContextTypes.DEFAULT_TY
       result = google_calendar.create_calendar_event(summary=summary, start_iso=start, end_iso=end, description=desc)
       await query.edit_message_text(text=f"✅ Event approved and created!\n\n{result}")
       
-      conn = sqlite3.connect('/home/lenny/myp/telegram_bot/whatsapp.db')
+      conn = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'))
       cursor = conn.cursor()
       cursor.execute("UPDATE event_proposals SET status = 'approved' WHERE proposal_id = ?", (proposal_id,))
       conn.commit()
@@ -195,7 +198,7 @@ async def handle_event_proposal(update: Update, context: ContextTypes.DEFAULT_TY
       
   elif data.startswith("rej_"):
     proposal_id = data[4:]
-    conn = sqlite3.connect('/home/lenny/myp/telegram_bot/whatsapp.db')
+    conn = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'))
     cursor = conn.cursor()
     cursor.execute("UPDATE event_proposals SET status = 'rejected' WHERE proposal_id = ?", (proposal_id,))
     conn.commit()
@@ -204,7 +207,7 @@ async def handle_event_proposal(update: Update, context: ContextTypes.DEFAULT_TY
 
   elif data.startswith("wa_send_"):
     proposal_id = data[8:]
-    conn = sqlite3.connect('/home/lenny/myp/telegram_bot/whatsapp.db', timeout=10.0)
+    conn = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'), timeout=10.0)
     cursor = conn.cursor()
     cursor.execute("SELECT chat_id, recipient_name, message_text, status FROM whatsapp_proposals WHERE proposal_id = ?", (proposal_id,))
     row = cursor.fetchone()
@@ -226,7 +229,7 @@ async def handle_event_proposal(update: Update, context: ContextTypes.DEFAULT_TY
         "text": f"🤖 {message_text}"
       })
       if resp.status_code == 200:
-        cursor = sqlite3.connect('/home/lenny/myp/telegram_bot/whatsapp.db', timeout=10.0).cursor()
+        cursor = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'), timeout=10.0).cursor()
         cursor.execute("UPDATE whatsapp_proposals SET status = 'sent' WHERE proposal_id = ?", (proposal_id,))
         cursor.connection.commit()
         cursor.connection.close()
@@ -238,7 +241,7 @@ async def handle_event_proposal(update: Update, context: ContextTypes.DEFAULT_TY
 
   elif data.startswith("wa_cancel_"):
     proposal_id = data[10:]
-    conn = sqlite3.connect('/home/lenny/myp/telegram_bot/whatsapp.db', timeout=10.0)
+    conn = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'), timeout=10.0)
     cursor = conn.cursor()
     cursor.execute("UPDATE whatsapp_proposals SET status = 'cancelled' WHERE proposal_id = ?", (proposal_id,))
     conn.commit()
@@ -283,7 +286,7 @@ async def send_long_message(context, chat_id, markdown_text, pp=None, tp=None):
 
       # Fetch exact proposal details from DB for coded confirmation
       try:
-        conn = sqlite3.connect('/home/lenny/myp/telegram_bot/whatsapp.db', timeout=10.0)
+        conn = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'), timeout=10.0)
         cursor = conn.cursor()
         cursor.execute("SELECT recipient_name, message_text FROM whatsapp_proposals WHERE proposal_id = ?", (proposal_id,))
         row = cursor.fetchone()
