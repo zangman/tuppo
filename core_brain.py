@@ -18,6 +18,7 @@ import tools.web_search as web_search
 import tools.searxng_search as searxng_search
 import tools.whatsapp_summary as whatsapp_summary
 import tools.google_calendar as google_calendar
+import tools.gmail as gmail
 import tools.fetch_page as fetch_page
 import tools.owner_profile as owner_profile
 
@@ -419,6 +420,44 @@ ADMIN_TOOLS = PUBLIC_TOOLS + [
       }
     }
   },
+  {
+    "type": "function",
+    "function": {
+      "name": "check_email_inbox",
+      "description": "List unread emails in the owner's inbox with sender, subject, preview, and local-time timestamp. Returns Gmail message IDs for follow-up with read_email. Admin only.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "max_results": {
+            "type": "integer",
+            "description": "Max emails to return (default 10, max 50)",
+            "default": 10
+          },
+          "query": {
+            "type": "string",
+            "description": "Gmail search query (e.g. 'from:boss@company.com', 'has:attachment')"
+          }
+        }
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "read_email",
+      "description": "Read the full plain-text content of a specific Gmail message by its message ID. HTML is stripped automatically. Admin only.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "message_id": {
+            "type": "string",
+            "description": "The Gmail message ID (from check_email_inbox results)"
+          }
+        },
+        "required": ["message_id"]
+      }
+    }
+  },
 ]
 
 def format_msg(tool_call_id, content):
@@ -736,6 +775,18 @@ async def execute_tool(tc, session_id):
     conn.commit()
     conn.close()
     return format_msg(tool_call_id, f"Cleared {cleared} message(s).")
+  elif tool_name == 'check_email_inbox':
+    args = json.loads(tc['function']['arguments'])
+    result = await asyncio.to_thread(
+        gmail.check_inbox,
+        args.get('max_results', 10),
+        args.get('query')
+    )
+    return format_msg(tool_call_id, result)
+  elif tool_name == 'read_email':
+    args = json.loads(tc['function']['arguments'])
+    result = await asyncio.to_thread(gmail.read_email, args['message_id'])
+    return format_msg(tool_call_id, result)
   else:
     return format_msg(tool_call_id, 'Tool doesn\'t exist')
 
