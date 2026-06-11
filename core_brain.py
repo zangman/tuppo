@@ -458,6 +458,24 @@ ADMIN_TOOLS = PUBLIC_TOOLS + [
       }
     }
   },
+  {
+    "type": "function",
+    "function": {
+      "name": "mark_emails_read",
+      "description": "Mark Gmail messages as read. Takes a list of message IDs from check_email_inbox results. Call this after showing emails to the owner so they don't appear again.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "message_ids": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Gmail message IDs to mark as read"
+          }
+        },
+        "required": ["message_ids"]
+      }
+    }
+  },
 ]
 
 def format_msg(tool_call_id, content):
@@ -786,6 +804,10 @@ async def execute_tool(tc, session_id):
   elif tool_name == 'read_email':
     args = json.loads(tc['function']['arguments'])
     result = await asyncio.to_thread(gmail.read_email, args['message_id'])
+    return format_msg(tool_call_id, result)
+  elif tool_name == 'mark_emails_read':
+    args = json.loads(tc['function']['arguments'])
+    result = await asyncio.to_thread(gmail.mark_emails_read, args['message_ids'])
     return format_msg(tool_call_id, result)
   else:
     return format_msg(tool_call_id, 'Tool doesn\'t exist')

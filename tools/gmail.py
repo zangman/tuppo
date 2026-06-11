@@ -196,3 +196,26 @@ def _extract_body(payload) -> str:
         return ' '.join(decoded.split())
 
     return '(empty message)'
+
+
+def mark_emails_read(message_ids: list[str]) -> str:
+    """Mark Gmail messages as read by removing the UNREAD label."""
+    if not message_ids:
+        return "No messages to mark as read."
+
+    service = get_gmail_service()
+    if isinstance(service, str):
+        return service
+
+    try:
+        service.users().messages().batchModify(
+            userId='me',
+            body={
+                'ids': message_ids,
+                'removeLabelIds': ['UNREAD']
+            }
+        ).execute()
+        return f"Marked {len(message_ids)} email(s) as read."
+    except Exception as e:
+        logging.error(f"Gmail mark_emails_read error: {e}")
+        return f"Gmail API error: {e}"

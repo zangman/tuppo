@@ -17,7 +17,7 @@ sys.path.insert(0, ROOT_DIR)
 import util.config as config
 
 # If modifying these scopes, delete the file token.json.
-SCOPES = ['https://www.googleapis.com/auth/calendar.readonly', 'https://www.googleapis.com/auth/calendar.events', 'https://www.googleapis.com/auth/gmail.readonly']
+SCOPES = ['https://www.googleapis.com/auth/calendar.readonly', 'https://www.googleapis.com/auth/calendar.events', 'https://www.googleapis.com/auth/gmail.modify']
 CREDENTIALS_FILE = os.path.join(ROOT_DIR, 'credentials.json')
 TOKEN_FILE = os.path.join(ROOT_DIR, 'token.json')
 
