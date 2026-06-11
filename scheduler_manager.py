@@ -24,8 +24,9 @@ async def run_scheduler_cycle(bot, owner_id):
     cursor = conn.cursor()
     
     # Find all pending tasks that are due
+    # Cron-only tasks (no execution_time) are always evaluated
     cursor.execute(
-        "SELECT task_id, owner_id, execution_time, action_type, action_params, cron_expression, status FROM scheduled_tasks WHERE status = 'pending' AND execution_time <= ?",
+        "SELECT task_id, owner_id, execution_time, action_type, action_params, cron_expression, status FROM scheduled_tasks WHERE status = 'pending' AND (execution_time <= ? OR cron_expression IS NOT NULL)",
         (now_utc.isoformat(),)
     )
     tasks = cursor.fetchall()
