@@ -1,10 +1,41 @@
 import sqlite3
 import os
 import logging
+import pytz
+import datetime
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.path.join(ROOT_DIR, "whatsapp.db")
 _MAX_OUTPUT_CHARS = 3500
+
+
+def _get_owner_timezone():
+    """Get owner timezone from config.yaml."""
+    import util.config as config
+    return config.load_config().get('owner', {}).get('timezone', 'UTC')
+
+
+def _utc_to_local(utc_str: str) -> str:
+    """Convert a UTC timestamp string to the owner's local timezone."""
+    try:
+        utc_tz = pytz.timezone('UTC')
+        local_tz = pytz.timezone(_get_owner_timezone())
+        dt = utc_tz.localize(datetime.datetime.strptime(utc_str, "%Y-%m-%d %H:%M:%S"))
+        return dt.astimezone(local_tz).strftime("%Y-%m-%d %H:%M:%S %Z")
+    except Exception:
+        return utc_str  # fallback to raw string if conversion fails
+
+
+def _format_time_local(timestamp_str: str) -> str:
+    """Extract just the time portion (HH:MM) in local timezone."""
+    try:
+        utc_tz = pytz.timezone('UTC')
+        local_tz = pytz.timezone(_get_owner_timezone())
+        dt = utc_tz.localize(datetime.datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S"))
+        return dt.astimezone(local_tz).strftime("%H:%M")
+    except Exception:
+        # fallback: extract time from raw string
+        return timestamp_str.split(" ")[1][:5] if " " in timestamp_str else timestamp_str
 
 
 def get_new_messages(chat_name_query: str = None) -> str:
@@ -65,7 +96,8 @@ def get_new_messages(chat_name_query: str = None) -> str:
 
         if not messages:
             conn.close()
-            return f"Chat found: '{group_name}', but there are no new unread messages since {last_read}."
+            local_last_read = _utc_to_local(last_read)
+            return f"Chat found: '{group_name}', but there are no new unread messages since {local_last_read} (local time)."
 
         # 3. Update the bookmark to the timestamp of the most recent message fetched
         latest_timestamp = messages[-1][2]
@@ -80,7 +112,7 @@ def get_new_messages(chat_name_query: str = None) -> str:
         transcript_lines = []
         for msg in messages:
             sender, text, timestamp = msg
-            time_str = timestamp.split(" ")[1][:5] if " " in timestamp else timestamp
+            time_str = _format_time_local(timestamp)
             transcript_lines.append(f"[{time_str}] {sender}: {text}")
 
         full_output = "\n".join(transcript_lines)
@@ -90,6 +122,7 @@ def get_new_messages(chat_name_query: str = None) -> str:
             truncated_lines = []
             current_len = 0
             messages_shown = 0
+            total_count = len(transcript_lines)
             for line in transcript_lines:
                 if current_len + len(line) + 1 > _MAX_OUTPUT_CHARS:
                     break
@@ -161,7 +194,7 @@ def get_chat_history(chat_name_query: str, timeframe_hours: int = 24, search_tex
         # Build full output, then truncate if needed
         for msg in messages:
             sender, text, timestamp = msg
-            time_str = timestamp.split(" ")[1][:5] if " " in timestamp else timestamp
+            time_str = _format_time_local(timestamp)
             transcript_lines.append(f"[{time_str}] {sender}: {text}")
 
         full_output = "\n".join(transcript_lines)
@@ -174,7 +207,7 @@ def get_chat_history(chat_name_query: str, timeframe_hours: int = 24, search_tex
             messages_shown = 0
             for msg in messages:
                 sender, text, timestamp = msg
-                time_str = timestamp.split(" ")[1][:5] if " " in timestamp else timestamp
+                time_str = _format_time_local(timestamp)
                 line = f"[{time_str}] {sender}: {text}"
                 if current_len + len(line) + 1 > _MAX_OUTPUT_CHARS:
                     break
@@ -235,6 +268,7 @@ def _list_active_chats(cursor) -> str:
     lines = ["Active WhatsApp chats in the last 7 days:"]
     for chat in chats:
         name, chat_id, count, last_msg = chat
-        lines.append(f"- {name} ({count} messages, last message: {last_msg})")
+        local_last_msg = _utc_to_local(last_msg)
+        lines.append(f"- {name} ({count} messages, last message: {local_last_msg} (local time))")
 
     return "\n".join(lines)
