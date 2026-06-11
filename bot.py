@@ -392,6 +392,21 @@ def _log_llm_server_status():
 
 def main(argv):
   del argv
+
+  # Enable file logging via Python logging bridge
+  from absl import logging as absl_logging
+  import logging as py_logging
+  absl_logging.use_python_logging()
+  file_handler = py_logging.FileHandler(
+      os.path.join(ROOT_DIR, 'tuppo.log'),
+      mode='a',
+      encoding='utf-8'
+  )
+  file_handler.setFormatter(
+      py_logging.Formatter('%(asctime)s | %(levelname)-5s | %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+  )
+  py_logging.getLogger().addHandler(file_handler)
+
   _log_llm_server_status()
   token = fetch_token()
   application = ApplicationBuilder().token(token).post_init(post_init).build()
