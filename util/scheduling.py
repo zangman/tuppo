@@ -89,11 +89,16 @@ def send_scheduling_confirmation(task_id, action, params, execution_time, cron):
     owner = _CFG.get('owner', {})
     owner_id = owner.get('owner_chat_id', owner.get('chat_id', ''))
     owner_tz = pytz.timezone(owner.get('timezone', 'UTC'))
-  except Exception:
-    return
+  except (ImportError, FileNotFoundError) as e:
+    logging.error(f"send_scheduling_confirmation: failed to load credentials: {e}")
+    raise RuntimeError(f"Cannot load scheduling credentials: {e}") from e
+  except pytz.exceptions.UnknownTimeZoneError as e:
+    logging.error(f"send_scheduling_confirmation: unknown timezone: {e}")
+    raise RuntimeError(f"Invalid timezone in config: {e}") from e
 
   if not owner_id:
-    return
+    logging.error("send_scheduling_confirmation: no owner_id configured")
+    raise RuntimeError("No owner_chat_id configured")
 
   # Convert execution_time to local timezone for readability
   time_display = execution_time
@@ -101,8 +106,9 @@ def send_scheduling_confirmation(task_id, action, params, execution_time, cron):
     try:
       dt = datetime.datetime.fromisoformat(execution_time)
       time_display = dt.astimezone(owner_tz).strftime('%Y-%m-%d %H:%M %Z')
-    except Exception:
-      pass
+    except (ValueError, pytz.exceptions.UnknownTimeZoneError) as e:
+      logging.error(f"send_scheduling_confirmation: failed to convert time for display: {e}")
+      raise RuntimeError(f"Cannot format execution time: {e}") from e
 
   # Build detail lines based on action type
   detail_lines = []
@@ -123,14 +129,19 @@ def send_scheduling_confirmation(task_id, action, params, execution_time, cron):
           f"Action: {action}\n"
           f"Time: {time_display}{cron_display}\n\n" + "\n".join(f"{html_mod.escape(l)}" for l in detail_lines))
 
-  requests.post(
-    f"https://api.telegram.org/bot{bot_token}/sendMessage",
-    json={
-      "chat_id": owner_id,
-      "text": text,
-      "parse_mode": "HTML",
-    },
-  )
+  try:
+    response = requests.post(
+      f"https://api.telegram.org/bot{bot_token}/sendMessage",
+      json={
+        "chat_id": owner_id,
+        "text": text,
+        "parse_mode": "HTML",
+      },
+    )
+    response.raise_for_status()
+  except requests.exceptions.RequestException as e:
+    logging.error(f"send_scheduling_confirmation: Telegram API error: {e}")
+    raise RuntimeError(f"Failed to send confirmation notification: {e}") from e
 
 
 def handle_schedule_task(tool_name, args, session_id, db_path):
@@ -153,8 +164,16 @@ def handle_schedule_task(tool_name, args, session_id, db_path):
   params = flatten_schedule_params(args)
   task_id = str(uuid.uuid4())[:8]
 
-  insert_scheduled_task(db_path, task_id, session_id, utc_time, action, json.dumps(params), cron)
-  send_scheduling_confirmation(task_id, action, params, utc_time, cron)
+  try:
+    insert_scheduled_task(db_path, task_id, session_id, utc_time, action, params, cron)
+  except (sqlite3.Error, RuntimeError) as e:
+    logging.error(f"handle_schedule_task: failed to insert task {task_id}: {e}")
+    return f"Error: failed to schedule task: {e}"
+
+  try:
+    send_scheduling_confirmation(task_id, action, params, utc_time, cron)
+  except RuntimeError as e:
+    return f"Task scheduled (ID: {task_id}) but failed to send confirmation: {e}"
 
   return f"Task scheduled successfully (ID: {task_id})."
 
