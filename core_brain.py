@@ -24,8 +24,6 @@ from tools.tool_definitions import PUBLIC_TOOLS, WHATSAPP_TOOLS, ADMIN_TOOLS
 _CFG = config.load_config()
 _BASE_URL = _CFG.get('llm', {}).get('base_url', 'http://localhost:8080')
 _URL = f"{_BASE_URL}/v1/chat/completions"
-_MODELS_URL = f"{_BASE_URL}/v1/models"
-
 _HEADERS = {
   "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:150.0) Gecko/20100101 Firefox/150.0",
   "Accept": "*/*",
@@ -233,27 +231,6 @@ async def execute_tool(tc, session_id):
 # LLM interaction
 # ---------------------------------------------------------------------------
 
-
-def _get_loaded_model() -> str:
-  """Fetch the currently loaded model name from llama.cpp."""
-  try:
-    resp = requests.get(_MODELS_URL, timeout=2)
-    resp.raise_for_status()
-    return resp.json()["data"][0]["id"]
-  except Exception:
-    return ""  # fallback: assume no stripping
-
-
-def _needs_reasoning_in_history(model_name: str) -> bool:
-  """Return True if the model family benefits from seeing prior reasoning."""
-  return "qwen" in model_name.lower()
-
-
-def _strip_reasoning(messages: list) -> list:
-  """Return a copy of messages with 'reasoning_content' removed from each."""
-  return [{k: v for k, v in msg.items() if k != 'reasoning_content'} for msg in messages]
-
-
 _MAX_CONTEXT_TOKENS = 32768
 _CHARS_PER_TOKEN = 4
 
@@ -334,12 +311,7 @@ async def get_llm_response(session_id, user_input, system_prompt_override=None):
   else:
     active_tools = PUBLIC_TOOLS
 
-  # Conditionally strip reasoning_content based on loaded model family
-  model_name = _get_loaded_model()
-  if _needs_reasoning_in_history(model_name):
-    payload_messages = sessions[session_id]
-  else:
-    payload_messages = _strip_reasoning(sessions[session_id])
+  payload_messages = sessions[session_id]
 
   # Enforce token budget — trim oldest messages if over limit
   payload_messages = _limit_tokens(payload_messages)
@@ -377,10 +349,7 @@ async def get_llm_response(session_id, user_input, system_prompt_override=None):
           proposal_output = result_msg['content']
       if proposal_output:
         return proposal_output, None, None
-      if _needs_reasoning_in_history(model_name):
-        payload["messages"] = sessions[session_id]
-      else:
-        payload["messages"] = _strip_reasoning(sessions[session_id])
+      payload["messages"] = sessions[session_id]
       # Re-apply token limit after tool results were appended
       payload["messages"] = _limit_tokens(payload["messages"])
       continue
