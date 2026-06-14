@@ -4,15 +4,13 @@ import json
 import os
 import requests
 from absl import logging
-import uuid
-import sqlite3
-import datetime
-import pytz
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 import util.get_time as get_time
 import util.config as config
+import util.scheduling as scheduling
+import util.db_tools as db_tools
 import tools.calc as calc
 import tools.web_search as web_search
 import tools.searxng_search as searxng_search
@@ -81,287 +79,159 @@ def _tool_return(tool_name, tool_call_id, content):
   return format_msg(tool_call_id, content)
 
 
-def _send_scheduling_confirmation(task_id, action, params, execution_time, cron):
-  """Send a Telegram notification confirming the scheduled task details."""
-  import html as html_mod
-
-  try:
-    with open(os.path.join(ROOT_DIR, 'token'), 'r') as f:
-      bot_token = f.read().strip()
-    owner = _CFG.get('owner', {})
-    owner_id = owner.get('owner_chat_id', owner.get('chat_id', ''))
-    owner_tz = pytz.timezone(owner.get('timezone', 'UTC'))
-  except Exception:
-    return
-
-  if not owner_id:
-    return
-
-  # Convert execution_time to local timezone for readability
-  time_display = execution_time
-  if execution_time:
-    try:
-      dt = datetime.datetime.fromisoformat(execution_time)
-      time_display = dt.astimezone(owner_tz).strftime('%Y-%m-%d %H:%M %Z')
-    except Exception:
-      pass
-
-  # Build detail lines based on action type
-  detail_lines = []
-  if action == 'send_whatsapp_message':
-    recipients = params.get('recipients', []) or [params.get('chat_id', 'Unknown')]
-    detail_lines.append(f"To: {', '.join(recipients)}")
-    detail_lines.append(f"Message: {params.get('message_text', '(empty)')}")
-  elif action == 'send_telegram_reminder':
-    detail_lines.append(f"Reminder: {params.get('message_text', '(empty)')}")
-  elif action == 'send_summary':
-    detail_lines.append(f"Group: {params.get('group', 'Unknown')}")
-  elif action == 'llm_task':
-    detail_lines.append(f"Task: {params.get('prompt', '(empty)')}")
-
-  cron_display = f"\nRecurrence: {cron}" if cron else ""
-  text = (f"<b>📅 Task Scheduled</b>\n\n"
-          f"ID: {task_id}\n"
-          f"Action: {action}\n"
-          f"Time: {time_display}{cron_display}\n\n" + "\n".join(f"{html_mod.escape(l)}" for l in detail_lines))
-
-  requests.post(
-    f"https://api.telegram.org/bot{bot_token}/sendMessage",
-    json={
-      "chat_id": owner_id,
-      "text": text,
-      "parse_mode": "HTML"
-    })
+# ---------------------------------------------------------------------------
+# Tool-call parsing and RBAC helpers (pure functions, easily testable)
+# ---------------------------------------------------------------------------
 
 
-async def execute_tool(tc, session_id):
+def _parse_tool_call(tc):
+  """Extract (tool_call_id, tool_name, args) from a tool call dict."""
   tool_call_id = tc['id']
   tool_name = tc['function']['name']
   args = json.loads(tc['function']['arguments'])
+  return tool_call_id, tool_name, args
+
+
+def _get_allowed_tools(session_id):
+  """Return the allowed tool list based on session_id prefix (RBAC)."""
+  if session_id.startswith("tg_"):
+    return ADMIN_TOOLS
+  elif session_id.startswith("wa_"):
+    return WHATSAPP_TOOLS
+  return PUBLIC_TOOLS
+
+
+def _validate_tool_access(tool_name, allowed_tools):
+  """Check if tool_name is in the allowed tools list. Returns True/False."""
+  return any(t['function']['name'] == tool_name for t in allowed_tools)
+
+
+# ---------------------------------------------------------------------------
+# Thin handler dispatchers for tool groups that delegate to external modules
+# ---------------------------------------------------------------------------
+
+
+async def _handle_basic_tools(tool_name, args):
+  """Handle calc, searxng_search, fetch_page. Returns result string or None."""
+  if tool_name == 'calc':
+    try:
+      ans = calc.do_calc(args['operand1'], args['operand2'], args['operator'])
+      return ans
+    except (ZeroDivisionError, ValueError) as e:
+      return str(e)
+  elif tool_name == 'searxng_search':
+    results = await asyncio.to_thread(searxng_search.search, args['query'], args.get('num_results', 5))
+    return results
+  elif tool_name == 'fetch_page':
+    content = await asyncio.to_thread(fetch_page.fetch_page_content, args['url'])
+    return content
+  return None
+
+
+async def _handle_whatsapp_message_tools(tool_name, args):
+  """Handle get_whatsapp_new_messages, get_whatsapp_history. Returns result string or None."""
+  if tool_name == 'get_whatsapp_new_messages':
+    transcript = await asyncio.to_thread(whatsapp_summary.get_new_messages, args.get('chat_name_query'))
+    return transcript
+  elif tool_name == 'get_whatsapp_history':
+    history = await asyncio.to_thread(whatsapp_summary.get_chat_history, args.get('chat_name_query'),
+                                      args.get('timeframe_hours', 24), args.get('search_text'))
+    return history
+  return None
+
+
+async def _handle_calendar_tools(tool_name, args):
+  """Handle all calendar tools. Returns result string or None."""
+  if tool_name == 'check_owner_availability':
+    return await asyncio.to_thread(google_calendar.check_owner_availability, args.get('time_min'), args.get('time_max'))
+  elif tool_name == 'propose_calendar_event':
+    return await asyncio.to_thread(google_calendar.propose_calendar_event, args.get('summary'), args.get('start_iso'),
+                                   args.get('end_iso'), args.get('description', ''),
+                                   args.get('requester_id', 'Unknown'))
+  elif tool_name == 'list_calendar_events':
+    return await asyncio.to_thread(google_calendar.list_calendar_events, args.get('time_min'), args.get('time_max'))
+  elif tool_name == 'create_calendar_event':
+    return await asyncio.to_thread(google_calendar.create_calendar_event, args.get('calendar_id', 'primary'),
+                                   args.get('summary'), args.get('start_iso'), args.get('end_iso'),
+                                   args.get('description', ''))
+  elif tool_name == 'delete_calendar_event':
+    return await asyncio.to_thread(google_calendar.delete_calendar_event, args.get('calendar_id', 'primary'),
+                                   args.get('event_id'))
+  elif tool_name == 'update_calendar_event':
+    return await asyncio.to_thread(google_calendar.update_calendar_event, args.get('calendar_id', 'primary'),
+                                   args.get('event_id'), args.get('summary'), args.get('start_iso'),
+                                   args.get('end_iso'), args.get('description'))
+  elif tool_name == 'list_user_calendars':
+    return await asyncio.to_thread(google_calendar.list_user_calendars)
+  return None
+
+
+async def _handle_profile_tools(tool_name, args):
+  """Handle get_profile, update_owner_status. Returns result string or None."""
+  if tool_name == 'get_profile':
+    return await asyncio.to_thread(owner_profile.get_profile)
+  elif tool_name == 'update_owner_status':
+    return await asyncio.to_thread(owner_profile.update_owner_status, args.get('key'), args.get('value'))
+  return None
+
+
+async def _handle_email_tools(tool_name, args):
+  """Handle check_email_inbox, read_email, mark_emails_read. Returns result string or None."""
+  if tool_name == 'check_email_inbox':
+    return await asyncio.to_thread(gmail.check_inbox, args.get('max_results', 10), args.get('query'))
+  elif tool_name == 'read_email':
+    return await asyncio.to_thread(gmail.read_email, args['message_id'])
+  elif tool_name == 'mark_emails_read':
+    return await asyncio.to_thread(gmail.mark_emails_read, args['message_ids'])
+  return None
+
+
+# ---------------------------------------------------------------------------
+# Main tool dispatcher
+# ---------------------------------------------------------------------------
+
+
+async def execute_tool(tc, session_id):
+  tool_call_id, tool_name, args = _parse_tool_call(tc)
   logging.info(f"TOOL CALL: {tool_name} args={json.dumps(args, default=str)[:500]}")
 
-  # RBAC Validation
-  if session_id.startswith("tg_"):
-    allowed_tools = ADMIN_TOOLS
-  elif session_id.startswith("wa_"):
-    allowed_tools = WHATSAPP_TOOLS
-  else:
-    allowed_tools = PUBLIC_TOOLS
-  if not any(t['function']['name'] == tool_name for t in allowed_tools):
+  allowed_tools = _get_allowed_tools(session_id)
+  if not _validate_tool_access(tool_name, allowed_tools):
     return _tool_return(
       tool_name, tool_call_id,
       f"SECURITY ALERT: Access to tool '{tool_name}' is strictly forbidden for this user. Nice try, hacker!")
 
-  if tool_name == 'calc':
-    try:
-      ans = calc.do_calc(args['operand1'], args['operand2'], args['operator'])
-      return _tool_return(tool_name, tool_call_id, ans)
-    except ZeroDivisionError as e:
-      return _tool_return(tool_name, tool_call_id, str(e))
-    except ValueError as e:
-      return _tool_return(tool_name, tool_call_id, str(e))
-  elif tool_name == 'searxng_search':
-    results = await asyncio.to_thread(searxng_search.search, args['query'], args.get('num_results', 5))
-    return _tool_return(tool_name, tool_call_id, results)
-  elif tool_name == 'fetch_page':
-    content = await asyncio.to_thread(fetch_page.fetch_page_content, args['url'])
-    return _tool_return(tool_name, tool_call_id, content)
-  elif tool_name == 'check_owner_availability':
-    availability = await asyncio.to_thread(google_calendar.check_owner_availability, args.get('time_min'),
-                                           args.get('time_max'))
-    return _tool_return(tool_name, tool_call_id, availability)
-  elif tool_name == 'propose_calendar_event':
-    result = await asyncio.to_thread(google_calendar.propose_calendar_event, args.get('summary'), args.get('start_iso'),
-                                     args.get('end_iso'), args.get('description', ''),
-                                     args.get('requester_id', 'Unknown'))
-    return _tool_return(tool_name, tool_call_id, result)
-  elif tool_name == 'get_whatsapp_new_messages':
-    transcript = await asyncio.to_thread(whatsapp_summary.get_new_messages, args.get('chat_name_query'))
-    return _tool_return(tool_name, tool_call_id, transcript)
-  elif tool_name == 'get_whatsapp_history':
-    history = await asyncio.to_thread(whatsapp_summary.get_chat_history, args.get('chat_name_query'),
-                                      args.get('timeframe_hours', 24), args.get('search_text'))
-    return _tool_return(tool_name, tool_call_id, history)
-  elif tool_name in ('schedule_telegram_reminder', 'schedule_whatsapp_message', 'schedule_whatsapp_summary',
-                     'schedule_llm_task'):
-    action_map = {
-      'schedule_telegram_reminder': 'send_telegram_reminder',
-      'schedule_whatsapp_message': 'send_whatsapp_message',
-      'schedule_whatsapp_summary': 'send_summary',
-      'schedule_llm_task': 'llm_task',
-    }
-    action = action_map[tool_name]
+  db_path = os.path.join(ROOT_DIR, 'whatsapp.db')
 
-    # Validate: must have execution_time; cron_expression required if is_recurring is true
-    execution_time = args.get('execution_time')
-    cron = args.get('cron_expression')
-    if not execution_time:
-      return _tool_return(tool_name, tool_call_id,
-                          "Error: execution_time is required. Cannot schedule a task with no time specified.")
-    is_recurring = args.get('is_recurring', False)
-    if is_recurring and not cron:
-      return _tool_return(tool_name, tool_call_id, "Error: cron_expression is required for recurring tasks.")
+  # Try each handler; first non-None result wins
+  for handler in [
+      lambda: _handle_basic_tools(tool_name, args),
+      lambda: _handle_whatsapp_message_tools(tool_name, args),
+      lambda: scheduling.handle_schedule_task(tool_name, args, session_id, db_path),
+      lambda: scheduling.handle_list_scheduled_tasks(db_path) if tool_name == 'list_scheduled_tasks' else None,
+      lambda: scheduling.handle_cancel_scheduled_task(args, db_path) if tool_name == 'cancel_scheduled_task' else None,
+      lambda: _handle_calendar_tools(tool_name, args),
+      lambda: _handle_profile_tools(tool_name, args),
+      lambda: _handle_email_tools(tool_name, args),
+      lambda: db_tools.handle_find_whatsapp_chat(args, db_path) if tool_name == 'find_whatsapp_chat' else None,
+      lambda: db_tools.handle_propose_whatsapp_message(args, db_path)
+      if tool_name == 'propose_whatsapp_message' else None,
+      lambda: db_tools.handle_count_pending_messages(db_path) if tool_name == 'count_pending_messages' else None,
+      lambda: db_tools.handle_get_pending_messages(db_path) if tool_name == 'get_pending_messages' else None,
+      lambda: db_tools.handle_clear_messages(args, db_path) if tool_name == 'clear_messages' else None,
+  ]:
+    result = handler()
+    if asyncio.iscoroutine(result):
+      result = await result
+    if result is not None:
+      return _tool_return(tool_name, tool_call_id, result)
 
-    task_id = str(uuid.uuid4())[:8]
-    if execution_time:
-      try:
-        original_time = execution_time
-        dt = datetime.datetime.fromisoformat(execution_time)
-        if dt.tzinfo is None:
-          dt = pytz.timezone('Asia/Singapore').localize(dt)
-        execution_time = dt.astimezone(pytz.utc).isoformat()
-        logging.info(f"Schedule [{tool_name}]: LLM sent '{original_time}', stored as UTC '{execution_time}'")
-      except Exception as e:
-        logging.error(f"Error parsing execution_time {execution_time}: {e}")
-        return _tool_return(
-          tool_name, tool_call_id,
-          f"Error: could not parse execution_time '{execution_time}'. Please provide a valid ISO timestamp (e.g., 2025-06-15T09:00:00)."
-        )
+  return _tool_return(tool_name, tool_call_id, 'Tool doesn\'t exist')
 
-    # Flatten args into params (drop execution_time and cron_expression)
-    params = {k: v for k, v in args.items() if k not in ('execution_time', 'cron_expression')}
 
-    conn = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'))
-    cursor = conn.cursor()
-    cursor.execute(
-      "INSERT INTO scheduled_tasks (task_id, owner_id, execution_time, action_type, action_params, cron_expression, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      (task_id, session_id, execution_time, action, json.dumps(params), cron, 'pending'))
-    conn.commit()
-    conn.close()
-
-    # Send Telegram confirmation with exact details
-    _send_scheduling_confirmation(task_id, action, params, execution_time, cron)
-
-    return _tool_return(tool_name, tool_call_id, f"Task scheduled successfully (ID: {task_id}).")
-  elif tool_name == 'list_scheduled_tasks':
-    conn = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'))
-    cursor = conn.cursor()
-    cursor.execute(
-      "SELECT task_id, execution_time, action_type, action_params FROM scheduled_tasks WHERE status = 'pending'")
-    tasks = cursor.fetchall()
-    conn.close()
-    if not tasks:
-      return _tool_return(tool_name, tool_call_id, "No pending scheduled tasks found.")
-
-    output = ["Upcoming Scheduled Tasks:"]
-    for t in tasks:
-      output.append(f"- {t[0]}: {t[1]} | Action: {t[2]} | Params: {t[3]}")
-    return _tool_return(tool_name, tool_call_id, "\n".join(output))
-  elif tool_name == 'cancel_scheduled_task':
-    task_id = args.get('task_id')
-    conn = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'))
-    cursor = conn.cursor()
-    cursor.execute("UPDATE scheduled_tasks SET status = 'cancelled' WHERE task_id = ?", (task_id,))
-    conn.commit()
-    conn.close()
-    return _tool_return(tool_name, tool_call_id, f"Task {task_id} has been cancelled.")
-  elif tool_name == 'list_calendar_events':
-    events = await asyncio.to_thread(google_calendar.list_calendar_events, args.get('time_min'), args.get('time_max'))
-    return _tool_return(tool_name, tool_call_id, events)
-  elif tool_name == 'create_calendar_event':
-    result = await asyncio.to_thread(google_calendar.create_calendar_event, args.get('calendar_id', 'primary'),
-                                     args.get('summary'), args.get('start_iso'), args.get('end_iso'),
-                                     args.get('description', ''))
-    return _tool_return(tool_name, tool_call_id, result)
-  elif tool_name == 'delete_calendar_event':
-    result = await asyncio.to_thread(google_calendar.delete_calendar_event, args.get('calendar_id', 'primary'),
-                                     args.get('event_id'))
-    return _tool_return(tool_name, tool_call_id, result)
-  elif tool_name == 'update_calendar_event':
-    result = await asyncio.to_thread(google_calendar.update_calendar_event, args.get('calendar_id', 'primary'),
-                                     args.get('event_id'), args.get('summary'), args.get('start_iso'),
-                                     args.get('end_iso'), args.get('description'))
-    return _tool_return(tool_name, tool_call_id, result)
-  elif tool_name == 'list_user_calendars':
-    calendars = await asyncio.to_thread(google_calendar.list_user_calendars)
-    return _tool_return(tool_name, tool_call_id, calendars)
-  elif tool_name == 'get_profile':
-    profile = await asyncio.to_thread(owner_profile.get_profile)
-    return _tool_return(tool_name, tool_call_id, profile)
-  elif tool_name == 'update_owner_status':
-    result = await asyncio.to_thread(owner_profile.update_owner_status, args.get('key'), args.get('value'))
-    return _tool_return(tool_name, tool_call_id, result)
-  elif tool_name == 'find_whatsapp_chat':
-    name = args.get('name', '')
-    conn = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'), timeout=10.0)
-    cursor = conn.cursor()
-    cursor.execute("SELECT chat_id, display_name FROM contacts WHERE display_name LIKE ? ORDER BY last_seen DESC",
-                   (f"%{name}%",))
-    matches = cursor.fetchall()
-    conn.close()
-    if not matches:
-      return _tool_return(tool_name, tool_call_id, f"No contacts found matching '{name}'.")
-    output = [f"Matches for '{name}':"]
-    for chat_id, display_name in matches:
-      output.append(f"- {display_name} (ID: {chat_id})")
-    return _tool_return(tool_name, tool_call_id, "\n".join(output))
-  elif tool_name == 'propose_whatsapp_message':
-    proposal_id = str(uuid.uuid4())[:8]
-    chat_id = args.get('chat_id')
-    recipient_name = args.get('recipient_name')
-    message_text = args.get('message_text')
-    conn = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'), timeout=10.0)
-    cursor = conn.cursor()
-    cursor.execute(
-      "INSERT INTO whatsapp_proposals (proposal_id, chat_id, recipient_name, message_text, status) VALUES (?, ?, ?, ?, ?)",
-      (proposal_id, chat_id, recipient_name, message_text, 'pending'))
-    conn.commit()
-    conn.close()
-    return _tool_return(tool_name, tool_call_id, f"[Proposal: {proposal_id}]")
-  elif tool_name == 'count_pending_messages':
-    conn = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'), timeout=10.0)
-    cursor = conn.cursor()
-    cursor.execute("SELECT COUNT(*) FROM messages_for_owner WHERE read_status = 'unread'")
-    count = cursor.fetchone()[0]
-    conn.close()
-    return _tool_return(tool_name, tool_call_id, f"You have {count} pending message(s).")
-  elif tool_name == 'get_pending_messages':
-    conn = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'), timeout=10.0)
-    cursor = conn.cursor()
-    cursor.execute(
-      "SELECT id, sender_name, sender_id, chat_name, chat_id, message_text, timestamp, read_status FROM messages_for_owner WHERE read_status = 'unread' ORDER BY timestamp DESC"
-    )
-    messages = cursor.fetchall()
-    conn.close()
-    if not messages:
-      return _tool_return(tool_name, tool_call_id, "No pending messages for you.")
-    output = [f"You have {len(messages)} message(s) waiting:"]
-    for msg_id, sender_name, sender_id, chat_name, chat_id, message_text, timestamp, read_status in messages:
-      output.append(f"\nMessage #{msg_id}:")
-      output.append(f"  From: {sender_name}")
-      output.append(f"  Context: {chat_name}")
-      output.append(f"  Time: {timestamp}")
-      output.append(f"  Message: {message_text}")
-    return _tool_return(tool_name, tool_call_id, "\n".join(output))
-  elif tool_name == 'clear_messages':
-    mode = args.get('mode', 'all')
-    conn = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'), timeout=10.0)
-    cursor = conn.cursor()
-    if mode == 'all':
-      cursor.execute("UPDATE messages_for_owner SET read_status = 'read' WHERE read_status = 'unread'")
-      cleared = cursor.rowcount
-    else:
-      ids = args.get('ids', [])
-      if ids:
-        placeholders = ','.join('?' * len(ids))
-        cursor.execute(f"UPDATE messages_for_owner SET read_status = 'read' WHERE id IN ({placeholders})", ids)
-        cleared = cursor.rowcount
-      else:
-        cleared = 0
-    conn.commit()
-    conn.close()
-    return _tool_return(tool_name, tool_call_id, f"Cleared {cleared} message(s).")
-  elif tool_name == 'check_email_inbox':
-    result = await asyncio.to_thread(gmail.check_inbox, args.get('max_results', 10), args.get('query'))
-    return _tool_return(tool_name, tool_call_id, result)
-  elif tool_name == 'read_email':
-    result = await asyncio.to_thread(gmail.read_email, args['message_id'])
-    return _tool_return(tool_name, tool_call_id, result)
-  elif tool_name == 'mark_emails_read':
-    result = await asyncio.to_thread(gmail.mark_emails_read, args['message_ids'])
-    return _tool_return(tool_name, tool_call_id, result)
-  else:
-    return _tool_return(tool_name, tool_call_id, 'Tool doesn\'t exist')
+# ---------------------------------------------------------------------------
+# LLM interaction
+# ---------------------------------------------------------------------------
 
 
 def _get_loaded_model() -> str:
