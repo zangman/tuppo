@@ -22,8 +22,9 @@ def _utc_to_local(utc_str: str) -> str:
     local_tz = pytz.timezone(_get_owner_timezone())
     dt = utc_tz.localize(datetime.datetime.strptime(utc_str, "%Y-%m-%d %H:%M:%S"))
     return dt.astimezone(local_tz).strftime("%Y-%m-%d %H:%M:%S %Z")
-  except Exception:
-    return utc_str  # fallback to raw string if conversion fails
+  except (ValueError, pytz.UnknownTimeZoneError, KeyError) as e:
+    logging.error(f"Timezone conversion failed for '{utc_str}': {e}")
+    raise
 
 
 def _format_time_local(timestamp_str: str) -> str:
@@ -33,9 +34,9 @@ def _format_time_local(timestamp_str: str) -> str:
     local_tz = pytz.timezone(_get_owner_timezone())
     dt = utc_tz.localize(datetime.datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S"))
     return dt.astimezone(local_tz).strftime("%H:%M")
-  except Exception:
-    # fallback: extract time from raw string
-    return timestamp_str.split(" ")[1][:5] if " " in timestamp_str else timestamp_str
+  except (ValueError, pytz.UnknownTimeZoneError, KeyError, IndexError) as e:
+    logging.error(f"Time formatting failed for '{timestamp_str}': {e}")
+    raise
 
 
 def get_new_messages(chat_name_query: str = None) -> str:
@@ -132,9 +133,12 @@ def get_new_messages(chat_name_query: str = None) -> str:
     conn.close()
     return "SUMMARY DATA:\n" + full_output
 
-  except Exception as e:
+  except sqlite3.Error as e:
     logging.error(f"Error querying WhatsApp DB: {e}")
     return f"Database query error: {e}"
+  except (ValueError, pytz.UnknownTimeZoneError, KeyError, IndexError) as e:
+    logging.error(f"Error processing time: {e}")
+    return f"Time processing error: {e}"
 
 
 def get_chat_history(chat_name_query: str, timeframe_hours: int = 24, search_text: str = None) -> str:
@@ -216,9 +220,12 @@ def get_chat_history(chat_name_query: str, timeframe_hours: int = 24, search_tex
     conn.close()
     return full_output
 
-  except Exception as e:
+  except sqlite3.Error as e:
     logging.error(f"Error querying WhatsApp DB: {e}")
     return f"Database query error: {e}"
+  except (ValueError, pytz.UnknownTimeZoneError, KeyError, IndexError) as e:
+    logging.error(f"Error processing time: {e}")
+    return f"Time processing error: {e}"
 
 
 def _resolve_chat(cursor, chat_name_query: str):
@@ -261,4 +268,3 @@ def _list_active_chats(cursor) -> str:
     lines.append(f"- {name} ({count} messages, last message: {local_last_msg} (local time))")
 
   return "\n".join(lines)
-
