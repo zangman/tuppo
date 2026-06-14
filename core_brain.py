@@ -208,13 +208,13 @@ ADMIN_TOOLS = PUBLIC_TOOLS + [
     "type": "function",
     "function": {
       "name": "schedule_telegram_reminder",
-      "description": "Schedule a Telegram reminder for the owner at a future time or on a recurring schedule. Requires either execution_time or cron_expression.",
+      "description": "Schedule a Telegram reminder for the owner at a future time or on a recurring schedule. For recurring tasks, you MUST provide BOTH execution_time (for the first run) AND cron_expression (for subsequent runs). A task with only execution_time will fire once and be marked completed.",
       "parameters": {
         "type": "object",
         "properties": {
-          "execution_time": {"type": "string", "description": "ISO format timestamp for the next execution. Optional for purely cron-based tasks."},
+          "execution_time": {"type": "string", "description": "ISO format timestamp for the next execution. REQUIRED for one-time tasks. For recurring tasks, must be provided alongside cron_expression."},
           "message_text": {"type": "string", "description": "The reminder text to send."},
-          "cron_expression": {"type": "string", "description": "Standard cron syntax for recurring tasks (e.g., '0 6,18 * * *'). NULL if one-time."}
+          "cron_expression": {"type": "string", "description": "REQUIRED for recurring tasks. Standard cron syntax (e.g., '0 6,18 * * *' for 6AM and 6PM daily). Omit only for one-time tasks."}
         },
         "required": ["message_text"]
       }
@@ -224,14 +224,14 @@ ADMIN_TOOLS = PUBLIC_TOOLS + [
     "type": "function",
     "function": {
       "name": "schedule_whatsapp_message",
-      "description": "Schedule a WhatsApp message for future or recurring delivery. MANDATORY: Resolve all names/groups to exact chatIds using find_whatsapp_chat first. Only pass explicit WhatsApp IDs (ending in @c.us or @g.us). Requires either execution_time or cron_expression.",
+      "description": "Schedule a WhatsApp message for future or recurring delivery. MANDATORY: Resolve all names/groups to exact chatIds using find_whatsapp_chat first. Only pass explicit WhatsApp IDs (ending in @c.us or @g.us). For recurring tasks, you MUST provide BOTH execution_time (for the first run) AND cron_expression (for subsequent runs). A task with only execution_time will fire once and be marked completed.",
       "parameters": {
         "type": "object",
         "properties": {
-          "execution_time": {"type": "string", "description": "ISO format timestamp for the next execution. Optional for purely cron-based tasks."},
+          "execution_time": {"type": "string", "description": "ISO format timestamp for the next execution. REQUIRED for one-time tasks. For recurring tasks, must be provided alongside cron_expression."},
           "recipients": {"type": "array", "items": {"type": "string"}, "description": "List of WhatsApp chatIds to send to (e.g., ['1234567890@c.us'])."},
           "message_text": {"type": "string", "description": "The message content to send."},
-          "cron_expression": {"type": "string", "description": "Standard cron syntax for recurring tasks (e.g., '0 6,18 * * *'). NULL if one-time."}
+          "cron_expression": {"type": "string", "description": "REQUIRED for recurring tasks. Standard cron syntax (e.g., '0 6,18 * * *' for 6AM and 6PM daily). Omit only for one-time tasks."}
         },
         "required": ["recipients", "message_text"]
       }
@@ -241,16 +241,28 @@ ADMIN_TOOLS = PUBLIC_TOOLS + [
     "type": "function",
     "function": {
       "name": "schedule_whatsapp_summary",
-      "description": "Schedule a WhatsApp group summary report for future or recurring delivery. Requires either execution_time or cron_expression.",
+      "description": "Schedule a WhatsApp group summary. Summarizes ONLY new messages since the last report. For recurring reports, set is_recurring to true.",
       "parameters": {
         "type": "object",
         "properties": {
-          "execution_time": {"type": "string", "description": "ISO format timestamp for the next execution. Optional for purely cron-based tasks."},
-          "group": {"type": "string", "description": "Name of the WhatsApp group to summarize."},
-          "timeframe_hours": {"type": "integer", "description": "How many hours of history to summarize."},
-          "cron_expression": {"type": "string", "description": "Standard cron syntax for recurring tasks (e.g., '0 6,18 * * *'). NULL if one-time."}
+          "group": {
+            "type": "string",
+            "description": "WhatsApp group name."
+          },
+          "is_recurring": {
+            "type": "boolean",
+            "description": "Set to true for repeated summaries (daily/weekly)."
+          },
+          "execution_time": {
+            "type": "string",
+            "description": "ISO timestamp (YYYY-MM-DDTHH:MM:SS) for the first/next run."
+          },
+          "cron_expression": {
+            "type": "string",
+            "description": "Cron syntax for recurring tasks (e.g., '0 9 * * *' for 9AM daily)."
+          }
         },
-        "required": ["group"]
+        "required": ["group", "execution_time", "is_recurring"]
       }
     }
   },
@@ -258,13 +270,13 @@ ADMIN_TOOLS = PUBLIC_TOOLS + [
     "type": "function",
     "function": {
       "name": "schedule_llm_task",
-      "description": "Schedule a dynamic LLM task for future or recurring execution. The prompt is evaluated fresh at the scheduled time (e.g., 'get latest news'). Requires either execution_time or cron_expression.",
+      "description": "Schedule a dynamic LLM task for future or recurring execution. The prompt is evaluated fresh at the scheduled time (e.g., 'get latest news'). For recurring tasks, you MUST provide BOTH execution_time (for the first run) AND cron_expression (for subsequent runs). A task with only execution_time will fire once and be marked completed.",
       "parameters": {
         "type": "object",
         "properties": {
-          "execution_time": {"type": "string", "description": "ISO format timestamp for the next execution. Optional for purely cron-based tasks."},
+          "execution_time": {"type": "string", "description": "ISO format timestamp for the next execution. REQUIRED for one-time tasks. For recurring tasks, must be provided alongside cron_expression."},
           "prompt": {"type": "string", "description": "The task prompt for the LLM to execute at the scheduled time."},
-          "cron_expression": {"type": "string", "description": "Standard cron syntax for recurring tasks (e.g., '0 6,18 * * *'). NULL if one-time."}
+          "cron_expression": {"type": "string", "description": "REQUIRED for recurring tasks. Standard cron syntax (e.g., '0 6,18 * * *' for 6AM and 6PM daily). Omit only for one-time tasks."}
         },
         "required": ["prompt"]
       }
@@ -532,7 +544,6 @@ def _send_scheduling_confirmation(task_id, action, params, execution_time, cron)
     detail_lines.append(f"Reminder: {params.get('message_text', '(empty)')}")
   elif action == 'send_summary':
     detail_lines.append(f"Group: {params.get('group', 'Unknown')}")
-    detail_lines.append(f"Timeframe: {params.get('timeframe_hours', 24)}h")
   elif action == 'llm_task':
     detail_lines.append(f"Task: {params.get('prompt', '(empty)')}")
 
@@ -616,11 +627,14 @@ async def execute_tool(tc, session_id):
     }
     action = action_map[tool_name]
 
-    # Validate: must have either execution_time or cron_expression
+    # Validate: must have execution_time; cron_expression required if is_recurring is true
     execution_time = args.get('execution_time')
     cron = args.get('cron_expression')
-    if not execution_time and not cron:
-        return _tool_return(tool_name, tool_call_id, "Error: Task must have either an execution_time or a cron_expression. Cannot schedule a task with no time specified.")
+    if not execution_time:
+        return _tool_return(tool_name, tool_call_id, "Error: execution_time is required. Cannot schedule a task with no time specified.")
+    is_recurring = args.get('is_recurring', False)
+    if is_recurring and not cron:
+        return _tool_return(tool_name, tool_call_id, "Error: cron_expression is required for recurring tasks.")
 
     task_id = str(uuid.uuid4())[:8]
     if execution_time:
