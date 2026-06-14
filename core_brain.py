@@ -639,12 +639,15 @@ async def execute_tool(tc, session_id):
     task_id = str(uuid.uuid4())[:8]
     if execution_time:
         try:
+            original_time = execution_time
             dt = datetime.datetime.fromisoformat(execution_time)
             if dt.tzinfo is None:
                 dt = pytz.timezone('Asia/Singapore').localize(dt)
             execution_time = dt.astimezone(pytz.utc).isoformat()
+            logging.info(f"Schedule [{tool_name}]: LLM sent '{original_time}', stored as UTC '{execution_time}'")
         except Exception as e:
             logging.error(f"Error parsing execution_time {execution_time}: {e}")
+            return _tool_return(tool_name, tool_call_id, f"Error: could not parse execution_time '{execution_time}'. Please provide a valid ISO timestamp (e.g., 2025-06-15T09:00:00).")
 
     # Flatten args into params (drop execution_time and cron_expression)
     params = {k: v for k, v in args.items() if k not in ('execution_time', 'cron_expression')}
