@@ -1,10 +1,8 @@
 import pytest
 import sqlite3
-import os
 import sys
 import types
 from datetime import datetime, timedelta
-from unittest.mock import patch, MagicMock
 
 import whatsapp_summary as ws
 

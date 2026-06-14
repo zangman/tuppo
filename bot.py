@@ -1,11 +1,8 @@
 import asyncio
-import json
 import os
 import re
 import sqlite3
 import requests
-
-ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 import util.get_time as get_time
 import util.get_health as get_health
 import core_brain
@@ -16,26 +13,32 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, filters, CallbackQueryHandler
 import scheduler_manager
 
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 _TOKEN_FILE = 'token'
 show_tps = False
 
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
   await context.bot.send_message(chat_id=update.effective_chat.id, text="Hello from bot")
+
 
 async def tps(update: Update, context: ContextTypes.DEFAULT_TYPE):
   global show_tps
   show_tps = not show_tps
   await context.bot.send_message(chat_id=update.effective_chat.id, text=f'Show tps: {show_tps}')
 
+
 async def health(update: Update, context: ContextTypes.DEFAULT_TYPE):
   stats = get_health.get_system_stats()
   await context.bot.send_message(chat_id=update.effective_chat.id, text=stats)
 
+
 async def clear_context(update: Update, context: ContextTypes.DEFAULT_TYPE):
   session_id = f"tg_{update.effective_chat.id}"
   core_brain.clear_session(session_id)
-  await context.bot.send_message(chat_id=update.effective_chat.id, text=f'Context cleared.')
+  await context.bot.send_message(chat_id=update.effective_chat.id, text='Context cleared.')
+
 
 async def wa_on(update: Update, context: ContextTypes.DEFAULT_TYPE):
   import util.config as config
@@ -44,12 +47,14 @@ async def wa_on(update: Update, context: ContextTypes.DEFAULT_TYPE):
   config.save_config(cfg)
   await context.bot.send_message(chat_id=update.effective_chat.id, text="✅ WhatsApp autoresponder is now ON.")
 
+
 async def wa_off(update: Update, context: ContextTypes.DEFAULT_TYPE):
   import util.config as config
   cfg = config.load_config()
   cfg.setdefault('whatsapp', {}).setdefault('autoresponder', {})['enabled'] = False
   config.save_config(cfg)
   await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ WhatsApp autoresponder is now OFF.")
+
 
 async def wa_groups(update: Update, context: ContextTypes.DEFAULT_TYPE):
   import util.config as config
@@ -71,8 +76,8 @@ async def wa_groups(update: Update, context: ContextTypes.DEFAULT_TYPE):
   conn.close()
   await context.bot.send_message(chat_id=update.effective_chat.id, text="\n".join(lines))
 
+
 async def wa_group_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
-  import json
   import sqlite3
   if not context.args:
     await context.bot.send_message(chat_id=update.effective_chat.id, text="Usage: /wa_group_add <group_name>")
@@ -85,7 +90,9 @@ async def wa_group_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
   matches = cursor.fetchall()
   conn.close()
   if not matches:
-    await context.bot.send_message(chat_id=update.effective_chat.id, text=f"No groups found matching '{group_query}'. Make sure the group has had recent activity.")
+    await context.bot.send_message(
+      chat_id=update.effective_chat.id,
+      text=f"No groups found matching '{group_query}'. Make sure the group has had recent activity.")
     return
   if len(matches) > 1:
     lines = [f"Multiple groups match '{group_query}':"]
@@ -102,9 +109,12 @@ async def wa_group_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
   if chat_id not in allowed:
     allowed.append(chat_id)
     config.save_config(cfg)
-    await context.bot.send_message(chat_id=update.effective_chat.id, text=f"✅ Added '{display_name}' to allowed groups.")
+    await context.bot.send_message(
+      chat_id=update.effective_chat.id, text=f"✅ Added '{display_name}' to allowed groups.")
   else:
-    await context.bot.send_message(chat_id=update.effective_chat.id, text=f"'{display_name}' is already in the allowed list.")
+    await context.bot.send_message(
+      chat_id=update.effective_chat.id, text=f"'{display_name}' is already in the allowed list.")
+
 
 async def wa_group_remove(update: Update, context: ContextTypes.DEFAULT_TYPE):
   import util.config as config
@@ -124,7 +134,8 @@ async def wa_group_remove(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cursor = conn.cursor()
     if allowed:
       placeholders = ','.join('?' * len(allowed))
-      cursor.execute(f"SELECT chat_id FROM contacts WHERE display_name LIKE ? AND chat_id IN ({placeholders})", (f"%{group_query}%",) + tuple(allowed))
+      cursor.execute(f"SELECT chat_id FROM contacts WHERE display_name LIKE ? AND chat_id IN ({placeholders})",
+                     (f"%{group_query}%",) + tuple(allowed))
       row = cursor.fetchone()
     else:
       row = None
@@ -135,9 +146,11 @@ async def wa_group_remove(update: Update, context: ContextTypes.DEFAULT_TYPE):
     allowed.remove(removed)
     cfg.setdefault('whatsapp', {}).setdefault('autoresponder', {})['allowed_groups'] = allowed
     config.save_config(cfg)
-    await context.bot.send_message(chat_id=update.effective_chat.id, text=f"✅ Removed group from allowed list.")
+    await context.bot.send_message(chat_id=update.effective_chat.id, text="✅ Removed group from allowed list.")
   else:
-    await context.bot.send_message(chat_id=update.effective_chat.id, text=f"No matching group found in allowed list for '{group_query}'.")
+    await context.bot.send_message(
+      chat_id=update.effective_chat.id, text=f"No matching group found in allowed list for '{group_query}'.")
+
 
 async def wa_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
   import sqlite3
@@ -149,17 +162,20 @@ async def wa_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cursor.execute("SELECT display_name, chat_id FROM contacts WHERE chat_id LIKE '%@g.us' ORDER BY display_name")
     title = "WhatsApp Groups"
   elif filter_type.lower() == 'private' or filter_type.lower() == 'people':
-    cursor.execute("SELECT display_name, chat_id FROM contacts WHERE chat_id NOT LIKE '%@g.us' AND chat_id != 'status@broadcast' ORDER BY display_name")
+    cursor.execute(
+      "SELECT display_name, chat_id FROM contacts WHERE chat_id NOT LIKE '%@g.us' AND chat_id != 'status@broadcast' ORDER BY display_name"
+    )
     title = "WhatsApp Private Chats"
   else:
-    cursor.execute("SELECT display_name, chat_id FROM contacts WHERE chat_id != 'status@broadcast' ORDER BY display_name")
+    cursor.execute(
+      "SELECT display_name, chat_id FROM contacts WHERE chat_id != 'status@broadcast' ORDER BY display_name")
     title = "All WhatsApp Contacts"
 
   rows = cursor.fetchall()
   conn.close()
 
   if not rows:
-    await context.bot.send_message(chat_id=update.effective_chat.id, text=f"No contacts found.")
+    await context.bot.send_message(chat_id=update.effective_chat.id, text="No contacts found.")
     return
 
   lines = [f"{title}:"]
@@ -167,27 +183,30 @@ async def wa_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lines.append(f"- {name} ({chat_id})")
   await context.bot.send_message(chat_id=update.effective_chat.id, text="\n".join(lines))
 
+
 async def handle_event_proposal(update: Update, context: ContextTypes.DEFAULT_TYPE):
   import sqlite3
   import tools.google_calendar as google_calendar
-  
+
   query = update.callback_query
   await query.answer()
-  
+
   data = query.data
   if data.startswith("app_"):
     proposal_id = data[4:]
     conn = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'))
     cursor = conn.cursor()
-    cursor.execute("SELECT summary, start_iso, end_iso, description, requester_id FROM event_proposals WHERE proposal_id = ?", (proposal_id,))
+    cursor.execute(
+      "SELECT summary, start_iso, end_iso, description, requester_id FROM event_proposals WHERE proposal_id = ?",
+      (proposal_id,))
     row = cursor.fetchone()
     conn.close()
-    
+
     if row:
       summary, start, end, desc, req_id = row
       result = google_calendar.create_calendar_event(summary=summary, start_iso=start, end_iso=end, description=desc)
       await query.edit_message_text(text=f"✅ Event approved and created!\n\n{result}")
-      
+
       conn = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'))
       cursor = conn.cursor()
       cursor.execute("UPDATE event_proposals SET status = 'approved' WHERE proposal_id = ?", (proposal_id,))
@@ -195,7 +214,7 @@ async def handle_event_proposal(update: Update, context: ContextTypes.DEFAULT_TY
       conn.close()
     else:
       await query.edit_message_text(text="Error: Proposal not found.")
-      
+
   elif data.startswith("rej_"):
     proposal_id = data[4:]
     conn = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'))
@@ -209,7 +228,8 @@ async def handle_event_proposal(update: Update, context: ContextTypes.DEFAULT_TY
     proposal_id = data[8:]
     conn = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'), timeout=10.0)
     cursor = conn.cursor()
-    cursor.execute("SELECT chat_id, recipient_name, message_text, status FROM whatsapp_proposals WHERE proposal_id = ?", (proposal_id,))
+    cursor.execute("SELECT chat_id, recipient_name, message_text, status FROM whatsapp_proposals WHERE proposal_id = ?",
+                   (proposal_id,))
     row = cursor.fetchone()
     conn.close()
 
@@ -224,10 +244,7 @@ async def handle_event_proposal(update: Update, context: ContextTypes.DEFAULT_TY
 
     # Send the message via WhatsApp gateway
     try:
-      resp = requests.post('http://localhost:3000/send-message', json={
-        "chatId": chat_id,
-        "text": f"🤖 {message_text}"
-      })
+      resp = requests.post('http://localhost:3000/send-message', json={"chatId": chat_id, "text": f"🤖 {message_text}"})
       if resp.status_code == 200:
         cursor = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'), timeout=10.0).cursor()
         cursor.execute("UPDATE whatsapp_proposals SET status = 'sent' WHERE proposal_id = ?", (proposal_id,))
@@ -248,26 +265,22 @@ async def handle_event_proposal(update: Update, context: ContextTypes.DEFAULT_TY
     conn.close()
     await query.edit_message_text(text="❌ Message cancelled.", reply_markup=None)
 
+
 async def msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
   session_id = f"tg_{update.effective_chat.id}"
   cur_time = get_time.get_current_time_with_timezone()
   content = f'[Context: Current time is {cur_time}]\n\n{update.message.text}'
-  
+
   llama_resp, pp, tp = await core_brain.get_llm_response(session_id, content)
 
   if llama_resp:
-    await send_long_message(
-        context,
-        update.effective_chat.id,
-        llama_resp,
-        pp,
-        tp
-    )
+    await send_long_message(context, update.effective_chat.id, llama_resp, pp, tp)
   else:
     await context.bot.send_message(
       chat_id=update.effective_chat.id,
       text="Sorry, I encountered an error processing your request.",
     )
+
 
 async def send_long_message(context, chat_id, markdown_text, pp=None, tp=None):
   chunks = split_markdown(markdown_text, max_len=3500)
@@ -288,25 +301,24 @@ async def send_long_message(context, chat_id, markdown_text, pp=None, tp=None):
       try:
         conn = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'), timeout=10.0)
         cursor = conn.cursor()
-        cursor.execute("SELECT recipient_name, message_text FROM whatsapp_proposals WHERE proposal_id = ?", (proposal_id,))
+        cursor.execute("SELECT recipient_name, message_text FROM whatsapp_proposals WHERE proposal_id = ?",
+                       (proposal_id,))
         row = cursor.fetchone()
         conn.close()
         if row:
           recipient_name, message_text = row
-          chat_response = (
-            f"{chat_response}\n\n"
-            f"—\n"
-            f"📨 Pending WhatsApp Message\n"
-            f"To: {recipient_name}\n"
-            f"Message:\n> {message_text}"
-          )
+          chat_response = (f"{chat_response}\n\n"
+                           f"—\n"
+                           f"📨 Pending WhatsApp Message\n"
+                           f"To: {recipient_name}\n"
+                           f"Message:\n> {message_text}")
       except Exception as e:
         logging.error(f"Error fetching proposal {proposal_id}: {e}")
 
-      keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("✅ Send", callback_data=f"wa_send_{proposal_id}"),
-         InlineKeyboardButton("❌ Cancel", callback_data=f"wa_cancel_{proposal_id}")]
-      ])
+      keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton("✅ Send", callback_data=f"wa_send_{proposal_id}"),
+        InlineKeyboardButton("❌ Cancel", callback_data=f"wa_cancel_{proposal_id}")
+      ]])
       reply_markup = keyboard
 
     if chat_response.strip():
@@ -316,6 +328,7 @@ async def send_long_message(context, chat_id, markdown_text, pp=None, tp=None):
         entities=[e.to_dict() for e in entities],
         reply_markup=reply_markup,
       )
+
 
 def split_markdown(text, max_len=3500):
   if len(text) <= max_len:
@@ -341,7 +354,7 @@ def split_markdown(text, max_len=3500):
             current_chunk = []
             current_len = 0
           for i in range(0, len(line), max_len):
-            chunks.append(line[i : i + max_len])
+            chunks.append(line[i:i + max_len])
         else:
           if current_len + len(line) + 1 > max_len:
             chunks.append('\n'.join(current_chunk))
@@ -365,16 +378,19 @@ def split_markdown(text, max_len=3500):
 
   return chunks
 
+
 def fetch_token():
   with open(_TOKEN_FILE, 'r') as f:
     token = f.read().strip()
   return token
 
+
 async def post_init(application):
-    import util.config as config
-    cfg = config.load_config()
-    owner_id = cfg.get('owner', {}).get('chat_id', '')
-    asyncio.create_task(scheduler_manager.scheduler_loop(application.bot, owner_id))
+  import util.config as config
+  cfg = config.load_config()
+  owner_id = cfg.get('owner', {}).get('chat_id', '')
+  asyncio.create_task(scheduler_manager.scheduler_loop(application.bot, owner_id))
+
 
 def _log_llm_server_status():
   """Check LLM server and log URL + model name. Non-fatal if unreachable."""
@@ -390,6 +406,7 @@ def _log_llm_server_status():
   except Exception as e:
     logging.warning(f"LLM server unreachable at {base_url}: {e}")
 
+
 def main(argv):
   del argv
 
@@ -397,14 +414,9 @@ def main(argv):
   from absl import logging as absl_logging
   import logging as py_logging
   absl_logging.use_python_logging()
-  file_handler = py_logging.FileHandler(
-      os.path.join(ROOT_DIR, 'tuppo.log'),
-      mode='a',
-      encoding='utf-8'
-  )
+  file_handler = py_logging.FileHandler(os.path.join(ROOT_DIR, 'tuppo.log'), mode='a', encoding='utf-8')
   file_handler.setFormatter(
-      py_logging.Formatter('%(asctime)s | %(levelname)-5s | %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
-  )
+    py_logging.Formatter('%(asctime)s | %(levelname)-5s | %(message)s', datefmt='%Y-%m-%d %H:%M:%S'))
   py_logging.getLogger().addHandler(file_handler)
 
   _log_llm_server_status()
@@ -435,6 +447,7 @@ def main(argv):
   application.add_handler(wa_list_handler)
   application.add_handler(proposal_handler)
   application.run_polling()
+
 
 if __name__ == '__main__':
   app.run(main)

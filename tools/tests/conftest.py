@@ -1,5 +1,4 @@
 import sqlite3
-import os
 import sys
 import types
 from datetime import datetime, timedelta

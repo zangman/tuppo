@@ -1,7 +1,6 @@
 from playwright.sync_api import sync_playwright
 
 from absl import app
-from absl import logging
 
 import trafilatura
 
@@ -22,7 +21,7 @@ def main(argv):
 
     browser.close()
 
-  markdown = trafilatura.extract(
+  markdown_text = trafilatura.extract(
     rendered_html,
     output_format="markdown",
     favor_precision=True,
@@ -32,8 +31,8 @@ def main(argv):
     deduplicate=False,
   )
   print(text)
+  print(markdown_text)
 
 
 if __name__ == '__main__':
   app.run(main)
-

@@ -176,7 +176,7 @@ def build_confirmation_message(task_id, action, params, time_display, cron):
   return (f"<b>📅 Task Scheduled</b>\n\n"
           f"ID: {task_id}\n"
           f"Action: {action}\n"
-          f"Time: {time_display}{cron_display}\n\n" + "\n".join(f"{html_mod.escape(l)}" for l in detail_lines))
+          f"Time: {time_display}{cron_display}\n\n" + "\n".join(f"{html_mod.escape(line)}" for line in detail_lines))
 
 
 def send_telegram_message(bot_token, chat_id, text):

@@ -185,7 +185,7 @@ def get_chat_history(chat_name_query: str, timeframe_hours: int = 24, search_tex
     header_parts = [f"=== Messages for '{group_name}' (last {timeframe_hours}h)"]
     if search_text:
       header_parts[0] += f", filtered by '{search_text}'"
-    header_parts[0] += f" ==="
+    header_parts[0] += " ==="
 
     transcript_lines = header_parts
     total_count = len(messages)

@@ -4,15 +4,10 @@ import json
 import os
 import requests
 from absl import logging
-
-ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
-
-import util.get_time as get_time
 import util.config as config
 import util.scheduling as scheduling
 import util.db_tools as db_tools
 import tools.calc as calc
-import tools.web_search as web_search
 import tools.searxng_search as searxng_search
 import tools.whatsapp_summary as whatsapp_summary
 import tools.google_calendar as google_calendar
@@ -20,6 +15,8 @@ import tools.gmail as gmail
 import tools.fetch_page as fetch_page
 import tools.owner_profile as owner_profile
 from tools.tool_definitions import PUBLIC_TOOLS, WHATSAPP_TOOLS, ADMIN_TOOLS
+
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 _CFG = config.load_config()
 _BASE_URL = _CFG.get('llm', {}).get('base_url', 'http://localhost:8080')

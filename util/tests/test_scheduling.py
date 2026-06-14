@@ -1,7 +1,6 @@
 """Tests for util/scheduling.py."""
 
 import json
-import os
 import sqlite3
 import sys
 import types
