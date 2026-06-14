@@ -54,7 +54,7 @@ def normalize_execution_time(execution_time):
     utc_time = dt.astimezone(pytz.utc).isoformat()
     logging.info(f"Schedule: LLM sent '{original_time}', stored as UTC '{utc_time}'")
     return utc_time, None
-  except Exception as e:
+  except (ValueError, TypeError) as e:
     logging.error(f"Error parsing execution_time {execution_time}: {e}")
     return None, (f"Error: could not parse execution_time '{execution_time}'. "
                   "Please provide a valid ISO timestamp (e.g., 2025-06-15T09:00:00).")
