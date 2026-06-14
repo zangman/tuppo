@@ -579,8 +579,13 @@ async def execute_tool(tc, session_id):
     return _tool_return(tool_name, tool_call_id, f"SECURITY ALERT: Access to tool '{tool_name}' is strictly forbidden for this user. Nice try, hacker!")
 
   if tool_name == 'calc':
-    ans = calc.do_calc(args['operand1'], args['operand2'], args['operator'])
-    return _tool_return(tool_name, tool_call_id, ans)
+    try:
+      ans = calc.do_calc(args['operand1'], args['operand2'], args['operator'])
+      return _tool_return(tool_name, tool_call_id, ans)
+    except ZeroDivisionError as e:
+      return _tool_return(tool_name, tool_call_id, str(e))
+    except ValueError as e:
+      return _tool_return(tool_name, tool_call_id, str(e))
   elif tool_name == 'searxng_search':
     results = await asyncio.to_thread(searxng_search.search, args['query'], args.get('num_results', 5))
     return _tool_return(tool_name, tool_call_id, results)
