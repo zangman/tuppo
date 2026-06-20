@@ -1,13 +1,16 @@
 import asyncio
+import datetime
+import json
 import os
 import sqlite3
-import json
-from absl import logging
-import requests
-import datetime
+
 import pytz
-import core_brain
+import requests
+from absl import logging
 from croniter import croniter
+
+import core_brain
+import tools.whatsapp_summary as whatsapp_summary
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(ROOT_DIR, 'whatsapp.db')
@@ -61,7 +64,6 @@ async def run_scheduler_cycle(bot, owner_id):
       # Execute action
       if action == 'send_summary':
         logging.info('in send summary')
-        import tools.whatsapp_summary as whatsapp_summary
         transcript = whatsapp_summary.get_new_messages(params.get('group'))
         # If there are no new messages, send the message directly
         if 'no new unread messages' in transcript.lower() or 'no chats found' in transcript.lower():
@@ -142,4 +144,3 @@ async def scheduler_loop(bot, owner_id):
     except Exception as e:
       logging.error(f"Scheduler loop error: {e}")
     await asyncio.sleep(30)
-

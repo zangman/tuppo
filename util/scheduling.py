@@ -4,16 +4,19 @@ Pure helpers (validate_schedule_args, normalize_execution_time, flatten_schedule
 are testable in isolation with no side effects.
 """
 
+import datetime
+import html as html_mod
 import json
 import os
 import sqlite3
 import uuid
-import datetime
+
 import pytz
 import requests
-import html as html_mod
-
 from absl import logging
+
+import core_brain
+import util.config as config
 
 SCHEDULE_ACTION_MAP = {
   'schedule_telegram_reminder': 'send_telegram_reminder',
@@ -90,8 +93,7 @@ def load_scheduling_credentials(cfg):
       RuntimeError: if credentials cannot be loaded or are misconfigured.
     """
   try:
-    from core_brain import ROOT_DIR
-    with open(os.path.join(ROOT_DIR, 'token'), 'r') as f:
+    with open(os.path.join(core_brain.ROOT_DIR, 'token')) as f:
       bot_token = f.read().strip()
     owner = cfg.get('owner', {})
     owner_id = owner.get('owner_chat_id', owner.get('chat_id', ''))
@@ -207,8 +209,6 @@ def send_telegram_message(bot_token, chat_id, text):
 
 def send_scheduling_confirmation(task_id, action, params, execution_time, cron):
   """Send a Telegram notification confirming the scheduled task details."""
-  import util.config as config
-
   cfg = config.load_config()
   creds = load_scheduling_credentials(cfg)
   time_display = format_execution_time_for_display(execution_time, creds['owner_tz'])

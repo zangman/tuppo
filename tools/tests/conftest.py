@@ -2,7 +2,9 @@ import sqlite3
 import sys
 import types
 from datetime import datetime, timedelta
+
 import pytest
+import whatsapp_summary as ws
 
 
 def _now_str():
@@ -95,4 +97,6 @@ def mock_config(monkeypatch):
   fake_util = types.ModuleType("util")
   fake_util.config = fake_config
   monkeypatch.setitem(sys.modules, "util", fake_util)
+  # Patch the already-imported reference in whatsapp_summary
+  monkeypatch.setattr(ws, "config", fake_config)
   return fake_config

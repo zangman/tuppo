@@ -76,7 +76,7 @@ def handle_get_pending_messages(db_path):
   if not messages:
     return "No pending messages for you."
   output = [f"You have {len(messages)} message(s) waiting:"]
-  for msg_id, sender_name, sender_id, chat_name, chat_id, message_text, timestamp, read_status in messages:
+  for msg_id, sender_name, _sender_id, chat_name, _chat_id, message_text, timestamp, _read_status in messages:
     output.append(f"\nMessage #{msg_id}:")
     output.append(f"  From: {sender_name}")
     output.append(f"  Context: {chat_name}")

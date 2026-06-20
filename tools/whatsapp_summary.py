@@ -1,8 +1,11 @@
-import sqlite3
-import os
-import logging
-import pytz
 import datetime
+import logging
+import os
+import sqlite3
+
+import pytz
+
+import util.config as config
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.path.join(ROOT_DIR, "whatsapp.db")
@@ -11,7 +14,6 @@ _MAX_OUTPUT_CHARS = 3500
 
 def _get_owner_timezone():
   """Get owner timezone from config.yaml."""
-  import util.config as config
   return config.load_config().get('owner', {}).get('timezone', 'UTC')
 
 

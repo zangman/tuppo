@@ -1,5 +1,5 @@
 import pytest
-from calc import do_calc, check_int
+from calc import check_int, do_calc
 
 # ── Happy path: all operators ───────────────────────────────────────
 

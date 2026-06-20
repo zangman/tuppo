@@ -1,12 +1,14 @@
-import os
-import datetime
-import pytz
-import logging
 import base64
+import datetime
+import logging
+import os
+
+import pytz
 from bs4 import BeautifulSoup
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
+
 import util.config as config
 
 ROOT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -36,7 +38,7 @@ def get_gmail_service():
   creds = None
   if os.path.exists(TOKEN_FILE):
     try:
-      with open(TOKEN_FILE, 'r') as f:
+      with open(TOKEN_FILE) as f:
         creds = Credentials.from_authorized_user_file(TOKEN_FILE)
     except Exception as e:
       logging.error(f"Failed to load Gmail credentials: {e}")

@@ -1,4 +1,5 @@
 import asyncio
+import logging as py_logging
 import os
 import re
 import sqlite3
@@ -6,12 +7,15 @@ import sqlite3
 import requests
 import telegramify_markdown as tm
 from absl import app, logging
+from absl import logging as absl_logging
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ApplicationBuilder, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
 import core_brain
 import scheduler_manager
+import tools.google_calendar as google_calendar
 import tools.notes as notes
+import util.config as config
 import util.get_health as get_health
 import util.get_time as get_time
 
@@ -75,7 +79,6 @@ async def clear_context(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def wa_on(update: Update, context: ContextTypes.DEFAULT_TYPE):
-  import util.config as config
   cfg = config.load_config()
   cfg.setdefault('whatsapp', {}).setdefault('autoresponder', {})['enabled'] = True
   config.save_config(cfg)
@@ -83,7 +86,6 @@ async def wa_on(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def wa_off(update: Update, context: ContextTypes.DEFAULT_TYPE):
-  import util.config as config
   cfg = config.load_config()
   cfg.setdefault('whatsapp', {}).setdefault('autoresponder', {})['enabled'] = False
   config.save_config(cfg)
@@ -91,14 +93,12 @@ async def wa_off(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def wa_groups(update: Update, context: ContextTypes.DEFAULT_TYPE):
-  import util.config as config
   cfg = config.load_config()
   allowed = cfg.get('whatsapp', {}).get('autoresponder', {}).get('allowed_groups', [])
   if not allowed:
     await context.bot.send_message(chat_id=update.effective_chat.id, text="No groups configured for autoresponse.")
     return
   # Try to resolve group names from contacts
-  import sqlite3
   conn = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'), timeout=10.0)
   cursor = conn.cursor()
   lines = ["Allowed groups for autoresponse:"]
@@ -112,7 +112,6 @@ async def wa_groups(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def wa_group_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
-  import sqlite3
   if not context.args:
     await context.bot.send_message(chat_id=update.effective_chat.id, text="Usage: /wa_group_add <group_name>")
     return
@@ -136,7 +135,6 @@ async def wa_group_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(chat_id=update.effective_chat.id, text="\n".join(lines))
     return
   chat_id, display_name = matches[0]
-  import util.config as config
   cfg = config.load_config()
   wa = cfg.setdefault('whatsapp', {}).setdefault('autoresponder', {})
   allowed = wa.setdefault('allowed_groups', [])
@@ -151,9 +149,6 @@ async def wa_group_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def wa_group_remove(update: Update, context: ContextTypes.DEFAULT_TYPE):
-  import sqlite3
-
-  import util.config as config
   if not context.args:
     await context.bot.send_message(chat_id=update.effective_chat.id, text="Usage: /wa_group_remove <group_name>")
     return
@@ -188,7 +183,6 @@ async def wa_group_remove(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def wa_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
-  import sqlite3
   conn = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'), timeout=10.0)
   cursor = conn.cursor()
   filter_type = ' '.join(context.args) if context.args else ''
@@ -220,10 +214,6 @@ async def wa_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_event_proposal(update: Update, context: ContextTypes.DEFAULT_TYPE):
-  import sqlite3
-
-  import tools.google_calendar as google_calendar
-
   query = update.callback_query
   await query.answer()
 
@@ -422,7 +412,6 @@ def fetch_token():
 
 
 async def post_init(application):
-  import util.config as config
   cfg = config.load_config()
   owner_id = cfg.get('owner', {}).get('chat_id', '')
   asyncio.create_task(scheduler_manager.scheduler_loop(application.bot, owner_id))
@@ -430,7 +419,6 @@ async def post_init(application):
 
 def _log_llm_server_status():
   """Check LLM server and log URL + model name. Non-fatal if unreachable."""
-  import util.config as config
   cfg = config.load_config()
   base_url = cfg.get('llm', {}).get('base_url', 'http://localhost:8080')
 
@@ -447,9 +435,6 @@ def main(argv):
   del argv
 
   # Enable file logging via Python logging bridge
-  import logging as py_logging
-
-  from absl import logging as absl_logging
   absl_logging.use_python_logging()
   file_handler = py_logging.FileHandler(os.path.join(ROOT_DIR, 'tuppo.log'), mode='a', encoding='utf-8')
   file_handler.setFormatter(

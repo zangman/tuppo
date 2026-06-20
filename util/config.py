@@ -1,4 +1,5 @@
 import os
+
 import yaml
 
 _CONFIG_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'config.yaml')
@@ -9,7 +10,7 @@ def load_config() -> dict:
     """Load config.yaml, caching the result after first load."""
     global _config
     if _config is None:
-        with open(_CONFIG_PATH, 'r') as f:
+        with open(_CONFIG_PATH) as f:
             _config = yaml.safe_load(f)
     return _config
 
@@ -17,7 +18,7 @@ def load_config() -> dict:
 def reload_config():
     """Force reload config.yaml from disk."""
     global _config
-    with open(_CONFIG_PATH, 'r') as f:
+    with open(_CONFIG_PATH) as f:
         _config = yaml.safe_load(f)
 
 

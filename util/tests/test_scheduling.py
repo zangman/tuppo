@@ -4,10 +4,11 @@ import json
 import sqlite3
 import sys
 import types
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 import pytz
+import requests
 
 from util import scheduling as sched
 
@@ -48,6 +49,7 @@ def mock_config(monkeypatch):
   fake_util = types.ModuleType("util")
   fake_util.config = fake_config
   monkeypatch.setitem(sys.modules, "util", fake_util)
+  monkeypatch.setattr(sched, "config", fake_config)
   return fake_config
 
 
@@ -59,6 +61,7 @@ def mock_core_brain_token(monkeypatch, tmp_path):
   fake_core_brain = types.ModuleType("core_brain")
   fake_core_brain.ROOT_DIR = str(tmp_path)
   monkeypatch.setitem(sys.modules, "core_brain", fake_core_brain)
+  monkeypatch.setattr(sched, "core_brain", fake_core_brain)
   return "test-bot-token-999"
 
 
@@ -235,6 +238,7 @@ class TestLoadSchedulingCredentials:
     fake_core_brain = types.ModuleType("core_brain")
     fake_core_brain.ROOT_DIR = "/nonexistent/path"
     monkeypatch.setitem(sys.modules, "core_brain", fake_core_brain)
+    monkeypatch.setattr(sched, "core_brain", fake_core_brain)
     cfg = mock_config.load_config()
     with pytest.raises(RuntimeError, match="Cannot load scheduling credentials"):
       sched.load_scheduling_credentials(cfg)
@@ -410,14 +414,13 @@ class TestSendTelegramMessage:
   def test_http_error_raises(self):
     mock_response = MagicMock()
     mock_response.raise_for_status.side_effect = requests_mock_error()
-    with patch("util.scheduling.requests.post", return_value=mock_response):
-      with pytest.raises(RuntimeError, match="Failed to send confirmation notification"):
-        sched.send_telegram_message("token", "12345", "hello")
+    with patch("util.scheduling.requests.post", return_value=mock_response), \
+         pytest.raises(RuntimeError, match="Failed to send confirmation notification"):
+      sched.send_telegram_message("token", "12345", "hello")
 
 
 def requests_mock_error():
   """Return a requests exception for testing."""
-  import requests
   return requests.exceptions.HTTPError("500 Server Error")
 
 
@@ -444,6 +447,7 @@ class TestSendSchedulingConfirmation:
     fake_core_brain = types.ModuleType("core_brain")
     fake_core_brain.ROOT_DIR = "/nonexistent"
     monkeypatch.setitem(sys.modules, "core_brain", fake_core_brain)
+    monkeypatch.setattr(sched, "core_brain", fake_core_brain)
     with pytest.raises(RuntimeError, match="Cannot load scheduling credentials"):
       sched.send_scheduling_confirmation(
         "task1",

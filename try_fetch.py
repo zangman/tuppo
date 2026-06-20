@@ -1,8 +1,6 @@
-from playwright.sync_api import sync_playwright
-
-from absl import app
-
 import trafilatura
+from absl import app
+from playwright.sync_api import sync_playwright
 
 
 def main(argv):

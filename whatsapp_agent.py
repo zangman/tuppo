@@ -5,11 +5,13 @@ import os
 import random
 import sqlite3
 import time
+
 import requests
-from fastapi import FastAPI, Request
 import uvicorn
-import util.config as config
+from fastapi import FastAPI, Request
+
 import core_brain
+import util.config as config
 import util.get_time as get_time
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))

@@ -2,19 +2,21 @@ import asyncio
 import copy
 import json
 import os
+
 import requests
 from absl import logging
-import util.config as config
-import util.scheduling as scheduling
-import util.db_tools as db_tools
+
 import tools.calc as calc
+import tools.fetch_page as fetch_page
+import tools.gmail as gmail
+import tools.google_calendar as google_calendar
+import tools.owner_profile as owner_profile
 import tools.searxng_search as searxng_search
 import tools.whatsapp_summary as whatsapp_summary
-import tools.google_calendar as google_calendar
-import tools.gmail as gmail
-import tools.fetch_page as fetch_page
-import tools.owner_profile as owner_profile
-from tools.tool_definitions import PUBLIC_TOOLS, WHATSAPP_TOOLS, ADMIN_TOOLS
+import util.config as config
+import util.db_tools as db_tools
+import util.scheduling as scheduling
+from tools.tool_definitions import ADMIN_TOOLS, PUBLIC_TOOLS, WHATSAPP_TOOLS
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -277,7 +279,7 @@ def _limit_tokens(messages: list, max_tokens: int = _MAX_CONTEXT_TOKENS) -> list
   # Evict blocks from the oldest end until under the limit
   total = sum(_msg_tokens(m) for m in messages[1:])
   evict_end = 1  # index up to which messages are kept (exclusive, after system prompt)
-  for start, end, tokens in blocks:
+  for start, _end, tokens in blocks:
     if total <= max_tokens:
       break
     # Evict this block

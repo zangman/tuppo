@@ -1,13 +1,12 @@
 from exa_py import Exa
 
-
 _CLIENT = None
 
 
 def _get_client():
     global _CLIENT
     if _CLIENT is None:
-        with open('exa_token', 'r') as f:
+        with open('exa_token') as f:
             _CLIENT = Exa(api_key=f.read().strip())
     return _CLIENT
 

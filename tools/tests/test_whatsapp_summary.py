@@ -1,9 +1,9 @@
-import pytest
 import sqlite3
 import sys
 import types
 from datetime import datetime, timedelta
 
+import pytest
 import whatsapp_summary as ws
 
 # ── Helpers ─────────────────────────────────────────────────────────
@@ -85,6 +85,7 @@ class TestUtcToLocal:
     fake_util = types.ModuleType("util")
     fake_util.config = fake_config
     monkeypatch.setitem(sys.modules, "util", fake_util)
+    monkeypatch.setattr(ws, "config", fake_config)
 
     result = ws._utc_to_local("2025-06-14 01:00:00")
     assert "01:00:00" in result

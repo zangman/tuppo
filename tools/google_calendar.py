@@ -1,16 +1,19 @@
-import os
 import datetime
-import sqlite3
-import uuid
-import requests
+import html
 import json
-import pytz
+import logging
+import os
+import sqlite3
 import sys
+import uuid
+
+import pytz
+import requests
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
-import logging
+
 import util.config as config
 
 ROOT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -58,13 +61,13 @@ def _resolve_calendar_id(calendar_id: str) -> str:
 def _notify_calendar_auth_needed(auth_url: str):
   """Send a Telegram notification with the Google Calendar auth URL."""
   try:
-    with open(os.path.join(ROOT_DIR, 'token'), 'r') as f:
+    with open(os.path.join(ROOT_DIR, 'token')) as f:
       bot_token = f.read().strip()
     owner_id = _get_owner_chat_id()
 
     message = ("⚠️ <b>Google Calendar token expired!</b>\n\n"
-               "To renew, <a href='{}'>click here to authorize</a>.\n\n"
-               "After authorizing, the bot will automatically save the new token.").format(auth_url)
+               f"To renew, <a href='{auth_url}'>click here to authorize</a>.\n\n"
+               "After authorizing, the bot will automatically save the new token.")
 
     requests.post(
       f"https://api.telegram.org/bot{bot_token}/sendMessage",
@@ -205,7 +208,7 @@ def propose_calendar_event(summary: str = None,
     conn.close()
 
     # 2. Send Telegram Notification
-    with open(os.path.join(ROOT_DIR, 'token'), 'r') as f:
+    with open(os.path.join(ROOT_DIR, 'token')) as f:
       bot_token = f.read().strip()
 
     owner_id = _get_owner_chat_id()
@@ -213,7 +216,6 @@ def propose_calendar_event(summary: str = None,
     if not owner_id or owner_id == "SET_ME":
       return "Error: Owner Chat ID not configured in profile. Please set owner_chat_id."
 
-    import html
     # Look up display name from contacts table
     display_name = requester_id
     try:

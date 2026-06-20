@@ -47,7 +47,7 @@ class TestGetNotesPath:
 
   def test_default_path_constant(self):
     """The hardcoded default is ~/Documents/notes.md."""
-    assert notes._DEFAULT_PATH == os.path.expanduser("~/Documents/notes.md")
+    assert os.path.expanduser("~/Documents/notes.md") == notes._DEFAULT_PATH
 
   def test_configured_path(self, mock_config_with_path):
     assert _get_notes_path() == mock_config_with_path
