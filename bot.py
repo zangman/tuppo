@@ -2,16 +2,18 @@ import asyncio
 import os
 import re
 import sqlite3
+
 import requests
-import util.get_time as get_time
-import util.get_health as get_health
-import core_brain
 import telegramify_markdown as tm
-from absl import app
-from absl import logging
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, filters, CallbackQueryHandler
+from absl import app, logging
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import ApplicationBuilder, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
+
+import core_brain
 import scheduler_manager
+import tools.notes as notes
+import util.get_health as get_health
+import util.get_time as get_time
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -21,6 +23,38 @@ show_tps = False
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
   await context.bot.send_message(chat_id=update.effective_chat.id, text="Hello from bot")
+
+
+async def note(update: Update, context: ContextTypes.DEFAULT_TYPE):
+  if not context.args:
+    await context.bot.send_message(
+      chat_id=update.effective_chat.id,
+      text="Usage: /note <your note>",
+    )
+    return
+  text = ' '.join(context.args)
+  try:
+    notes.save_note(text)
+    await context.bot.send_message(
+      chat_id=update.effective_chat.id,
+      text="✅ Note saved.",
+    )
+  except PermissionError:
+    await context.bot.send_message(
+      chat_id=update.effective_chat.id,
+      text="❌ Can't save note — permission denied. Check the notes file path in config.yaml.",
+    )
+  except (FileNotFoundError, OSError) as e:
+    await context.bot.send_message(
+      chat_id=update.effective_chat.id,
+      text=f"❌ Can't save note — {e}",
+    )
+  except Exception as e:
+    logging.error("Unexpected error saving note: %s", e, exc_info=True)
+    await context.bot.send_message(
+      chat_id=update.effective_chat.id,
+      text="❌ Something went wrong saving your note. Check the logs.",
+    )
 
 
 async def tps(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -117,8 +151,9 @@ async def wa_group_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def wa_group_remove(update: Update, context: ContextTypes.DEFAULT_TYPE):
-  import util.config as config
   import sqlite3
+
+  import util.config as config
   if not context.args:
     await context.bot.send_message(chat_id=update.effective_chat.id, text="Usage: /wa_group_remove <group_name>")
     return
@@ -186,6 +221,7 @@ async def wa_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_event_proposal(update: Update, context: ContextTypes.DEFAULT_TYPE):
   import sqlite3
+
   import tools.google_calendar as google_calendar
 
   query = update.callback_query
@@ -380,7 +416,7 @@ def split_markdown(text, max_len=3500):
 
 
 def fetch_token():
-  with open(_TOKEN_FILE, 'r') as f:
+  with open(_TOKEN_FILE) as f:
     token = f.read().strip()
   return token
 
@@ -411,8 +447,9 @@ def main(argv):
   del argv
 
   # Enable file logging via Python logging bridge
-  from absl import logging as absl_logging
   import logging as py_logging
+
+  from absl import logging as absl_logging
   absl_logging.use_python_logging()
   file_handler = py_logging.FileHandler(os.path.join(ROOT_DIR, 'tuppo.log'), mode='a', encoding='utf-8')
   file_handler.setFormatter(
@@ -425,6 +462,7 @@ def main(argv):
   start_handler = CommandHandler('start', start)
   tps_handler = CommandHandler('tps', tps)
   clear_context_handler = CommandHandler('clear_context', clear_context)
+  note_handler = CommandHandler('note', note)
   wa_on_handler = CommandHandler('wa_on', wa_on)
   wa_off_handler = CommandHandler('wa_off', wa_off)
   wa_groups_handler = CommandHandler('wa_groups', wa_groups)
@@ -439,6 +477,7 @@ def main(argv):
   application.add_handler(health_handler)
   application.add_handler(msg_handler)
   application.add_handler(clear_context_handler)
+  application.add_handler(note_handler)
   application.add_handler(wa_on_handler)
   application.add_handler(wa_off_handler)
   application.add_handler(wa_groups_handler)

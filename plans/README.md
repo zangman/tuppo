@@ -20,6 +20,7 @@ Most of these have been implemented, but some may remain as future work.
 | `whatsapp_group_autoresponder_plan.md` | ✅ Implemented |
 | `whatsapp_messaging_plan.md` | ✅ Implemented |
 | `whatsapp_take_message_plan.md` | ✅ Implemented |
+| `telegram_notes_plan.md` | Planned |
 
 ## How to read them
 

@@ -3,7 +3,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 const RUFF_BIN = "/home/lenny/myp/tuppo/v/bin/ruff";
 
 export default function (pi: ExtensionAPI) {
-  // Track Python files modified in the current turn
+  // Track Python files modified in the current agent run
   let modifiedPythonFiles: string[] = [];
 
   pi.on("session_start", async (_event, ctx) => {
@@ -20,8 +20,8 @@ export default function (pi: ExtensionAPI) {
     }
   });
 
-  // At end of each turn, run ruff on any modified Python files
-  pi.on("turn_end", async (_event, ctx) => {
+  // At end of the agent loop (after all turns), run ruff once on all modified Python files
+  pi.on("agent_end", async (_event, ctx) => {
     if (modifiedPythonFiles.length === 0) {
       modifiedPythonFiles = [];
       return;
