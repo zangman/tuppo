@@ -17,20 +17,19 @@ def _make_fake_config(notes_path=None):
   return fake_config
 
 
-@pytest.fixture
-def mock_default_config(monkeypatch):
-  """No notes.path in config (tests the default path)."""
-  fake = _make_fake_config()
-  monkeypatch.setattr(notes, "config", fake)
-
-
-@pytest.fixture
-def mock_config_with_path(tmp_path, monkeypatch):
-  """Notes path points to a temp dir. Returns the resolved path string."""
-  notes_file = str(tmp_path / "my_notes.md")
+@pytest.fixture(autouse=True)
+def tmp_notes_path(tmp_path, monkeypatch):
+  """Autouse: every test writes to a temp dir, never ~/Documents."""
+  notes_file = str(tmp_path / "notes.md")
   fake = _make_fake_config(notes_path=notes_file)
   monkeypatch.setattr(notes, "config", fake)
   return notes_file
+
+
+@pytest.fixture
+def mock_config_with_path(tmp_notes_path):
+  """Alias for tmp_notes_path (backward compat)."""
+  return tmp_notes_path
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -46,11 +45,18 @@ def _read_lines(path):
 
 class TestGetNotesPath:
 
-  def test_default_path(self, mock_default_config):
-    assert _get_notes_path() == os.path.expanduser("~/Documents/notes.md")
+  def test_default_path_constant(self):
+    """The hardcoded default is ~/Documents/notes.md."""
+    assert notes._DEFAULT_PATH == os.path.expanduser("~/Documents/notes.md")
 
   def test_configured_path(self, mock_config_with_path):
     assert _get_notes_path() == mock_config_with_path
+
+  def test_default_path_when_config_missing(self, monkeypatch):
+    """Missing notes.path key → uses ~/Documents/notes.md."""
+    fake = _make_fake_config()
+    monkeypatch.setattr(notes, "config", fake)
+    assert _get_notes_path() == os.path.expanduser("~/Documents/notes.md")
 
 
 # ── save_note happy path ─────────────────────────────────────────────
@@ -76,8 +82,7 @@ class TestSaveNote:
     # YYYY-MM-DD HH:MM:SS | <text>
     assert re.match(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \| test", line)
 
-  def test_return_value(self, mock_default_config):
-    # Uses default path — just check the return string format
+  def test_return_value(self, mock_config_with_path):
     result = save_note("hello")
     assert "Note saved:" in result
     assert re.search(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", result)
@@ -131,7 +136,3 @@ class TestSaveNoteErrors:
         save_note("should fail")
     finally:
       os.chmod(locked_dir, 0o755)
-
-  def test_default_path_when_config_missing(self, mock_default_config):
-    """Missing notes.path key → uses ~/Documents/notes.md."""
-    assert _get_notes_path() == os.path.expanduser("~/Documents/notes.md")
