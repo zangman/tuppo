@@ -4,7 +4,6 @@ import os
 import re
 
 import requests
-import telegramify_markdown as tm
 from absl import app, logging
 from absl import logging as absl_logging
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -18,6 +17,7 @@ import util.config as config
 import util.get_health as get_health
 import util.get_time as get_time
 from util import db_tools
+from util.message import compose_long_message
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -253,7 +253,13 @@ async def msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
   try:
     llama_resp, pp, tp = await core_brain.get_llm_response(session_id, content)
     llama_resp, reply_markup = _handle_whatsapp_proposal(llama_resp)
-    await send_long_message(context, update.effective_chat.id, llama_resp, show_tps, pp, tp, reply_markup=reply_markup)
+    for text, entities, markup in compose_long_message(llama_resp, show_tps, pp, tp, reply_markup=reply_markup):
+      await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text=text,
+        entities=entities,
+        reply_markup=markup,
+      )
   except RuntimeError as e:
     logging.error(e)
     await _send_error_message(context, update.effective_chat.id)
@@ -290,73 +296,6 @@ def _handle_whatsapp_proposal(markdown_text):
     InlineKeyboardButton("❌ Cancel", callback_data=f"wa_cancel_{proposal_id}")
   ]])
   return cleaned, keyboard
-
-
-async def send_long_message(context, chat_id, markdown_text, show_tps=False, pp=None, tp=None, reply_markup=None):
-  chunks = split_markdown(markdown_text, max_len=3500)
-  for i, chunk in enumerate(chunks):
-    chat_response, entities = tm.convert(chunk)
-    if i == len(chunks) - 1 and show_tps and pp is not None and tp is not None:
-      chat_response = f'{chat_response} (pp: {round(pp,2)}, tp: {round(tp,2)})'
-
-    effective_markup = reply_markup if i == len(chunks) - 1 else None
-
-    if chat_response.strip():
-      await context.bot.send_message(
-        chat_id=chat_id,
-        text=chat_response,
-        entities=[e.to_dict() for e in entities],
-        reply_markup=effective_markup,
-      )
-
-
-def split_markdown(text, max_len=3500):
-  if len(text) <= max_len:
-    return [text]
-
-  chunks = []
-  current_chunk = []
-  current_len = 0
-
-  paragraphs = text.split('\n\n')
-  for p in paragraphs:
-    if len(p) > max_len:
-      if current_chunk:
-        chunks.append('\n\n'.join(current_chunk))
-        current_chunk = []
-        current_len = 0
-
-      lines = p.split('\n')
-      for line in lines:
-        if len(line) > max_len:
-          if current_chunk:
-            chunks.append('\n'.join(current_chunk))
-            current_chunk = []
-            current_len = 0
-          for i in range(0, len(line), max_len):
-            chunks.append(line[i:i + max_len])
-        else:
-          if current_len + len(line) + 1 > max_len:
-            chunks.append('\n'.join(current_chunk))
-            current_chunk = [line]
-            current_len = len(line)
-          else:
-            current_chunk.append(line)
-            current_len += len(line) + 1
-    else:
-      if current_len + len(p) + 2 > max_len:
-        if current_chunk:
-          chunks.append('\n\n'.join(current_chunk))
-        current_chunk = [p]
-        current_len = len(p)
-      else:
-        current_chunk.append(p)
-        current_len += len(p) + 2
-
-  if current_chunk:
-    chunks.append('\n\n'.join(current_chunk))
-
-  return chunks
 
 
 def fetch_token():
