@@ -5,6 +5,7 @@ import os
 
 import requests
 from absl import logging
+from requests.exceptions import JSONDecodeError, RequestException
 
 import tools.calc as calc
 import tools.fetch_page as fetch_page
@@ -331,9 +332,9 @@ async def get_llm_response(session_id, user_input, system_prompt_override=None):
       response = requests.post(_URL, json=payload, headers=_HEADERS)
       response.raise_for_status()
       full_resp = response.json()
-    except Exception as e:
+    except (RequestException, JSONDecodeError) as e:
       logging.error(f"API request failed: {e}")
-      return 'Sorry, the LLM API is currently down or unreachable.', None, None
+      raise RuntimeError(f"API request failed: {e}") from e
 
     tool_calls = full_resp['choices'][0]['message'].get('tool_calls', None)
 

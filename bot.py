@@ -305,17 +305,12 @@ async def msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
   cur_time = get_time.get_current_time_with_timezone()
   content = f'[Context: Current time is {cur_time}]\n\n{update.message.text}'
 
-  llama_resp, pp, tp = await core_brain.get_llm_response(session_id, content)
-
-  if llama_resp:
-    try:
-      llama_resp, reply_markup = _handle_whatsapp_proposal(llama_resp)
-    except RuntimeError as e:
-      logging.error(e)
-      await _send_error_message(context, update.effective_chat.id)
-      return
+  try:
+    llama_resp, pp, tp = await core_brain.get_llm_response(session_id, content)
+    llama_resp, reply_markup = _handle_whatsapp_proposal(llama_resp)
     await send_long_message(context, update.effective_chat.id, llama_resp, show_tps, pp, tp, reply_markup=reply_markup)
-  else:
+  except RuntimeError as e:
+    logging.error(e)
     await _send_error_message(context, update.effective_chat.id)
 
 
