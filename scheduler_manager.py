@@ -11,6 +11,7 @@ from croniter import croniter
 
 import core_brain
 import util.get_time as get_time
+from util.message import compose_long_message
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(ROOT_DIR, 'whatsapp.db')
@@ -51,7 +52,8 @@ async def run_scheduler_cycle(bot, owner_id):
         session_id = f"tg_{owner_id}" if not str(owner_id).startswith("tg_") else owner_id
         logging.info('sending llm summary')
         response, _, _ = await core_brain.get_llm_response(session_id, prompt)
-        await bot.send_message(chat_id=owner_id, text=f"📅 Scheduled Summary:\n\n{response}")
+        for text, entities, _ in compose_long_message(f"📅 Scheduled Summary:\n\n{response}"):
+          await bot.send_message(chat_id=owner_id, text=text, entities=entities)
 
       elif action == 'send_whatsapp_message':
         # Handle multiple recipients or single chat_id
