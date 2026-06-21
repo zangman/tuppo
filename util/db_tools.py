@@ -85,6 +85,22 @@ def handle_get_pending_messages(db_path):
   return "\n".join(output)
 
 
+def fetch_whatsapp_proposal(proposal_id, db_path):
+  """Fetch recipient_name and message_text for a proposal by ID.
+
+  Returns (recipient_name, message_text) or None if not found.
+  """
+  conn = sqlite3.connect(db_path, timeout=10.0)
+  cursor = conn.cursor()
+  cursor.execute(
+    "SELECT recipient_name, message_text FROM whatsapp_proposals WHERE proposal_id = ?",
+    (proposal_id,),
+  )
+  row = cursor.fetchone()
+  conn.close()
+  return row
+
+
 def handle_clear_messages(args, db_path):
   """Mark messages as read.
 

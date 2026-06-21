@@ -205,6 +205,31 @@ class TestHandleGetPendingMessages:
     assert bob_pos < alice_pos
 
 
+# ── fetch_whatsapp_proposal ───────────────────────────────────────────
+
+
+class TestFetchWhatsappProposal:
+
+  def test_found(self, db_tools_db_path):
+    db_tools.handle_propose_whatsapp_message({
+      "chat_id": "c1",
+      "recipient_name": "Alice",
+      "message_text": "Hello!",
+    }, db_tools_db_path)
+    proposal_id = "abc123"
+    conn = sqlite3.connect(db_tools_db_path)
+    conn.execute("UPDATE whatsapp_proposals SET proposal_id = ?", (proposal_id,))
+    conn.commit()
+    conn.close()
+
+    result = db_tools.fetch_whatsapp_proposal(proposal_id, db_tools_db_path)
+    assert result == ("Alice", "Hello!")
+
+  def test_not_found(self, db_tools_db_path):
+    result = db_tools.fetch_whatsapp_proposal("nonexistent", db_tools_db_path)
+    assert result is None
+
+
 # ── handle_clear_messages ─────────────────────────────────────────────
 
 

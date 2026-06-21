@@ -18,6 +18,7 @@ import tools.notes as notes
 import util.config as config
 import util.get_health as get_health
 import util.get_time as get_time
+from util import db_tools
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -292,6 +293,13 @@ async def handle_event_proposal(update: Update, context: ContextTypes.DEFAULT_TY
     await query.edit_message_text(text="❌ Message cancelled.", reply_markup=None)
 
 
+async def _send_error_message(context, chat_id):
+  await context.bot.send_message(
+    chat_id=chat_id,
+    text="Sorry, I encountered an error processing your request.",
+  )
+
+
 async def msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
   session_id = f"tg_{update.effective_chat.id}"
   cur_time = get_time.get_current_time_with_timezone()
@@ -300,13 +308,15 @@ async def msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
   llama_resp, pp, tp = await core_brain.get_llm_response(session_id, content)
 
   if llama_resp:
-    llama_resp, reply_markup = _handle_whatsapp_proposal(llama_resp)
+    try:
+      llama_resp, reply_markup = _handle_whatsapp_proposal(llama_resp)
+    except RuntimeError as e:
+      logging.error(e)
+      await _send_error_message(context, update.effective_chat.id)
+      return
     await send_long_message(context, update.effective_chat.id, llama_resp, show_tps, pp, tp, reply_markup=reply_markup)
   else:
-    await context.bot.send_message(
-      chat_id=update.effective_chat.id,
-      text="Sorry, I encountered an error processing your request.",
-    )
+    await _send_error_message(context, update.effective_chat.id)
 
 
 def _handle_whatsapp_proposal(markdown_text):
@@ -323,23 +333,17 @@ def _handle_whatsapp_proposal(markdown_text):
   cleaned = re.sub(r'\s*\[Proposal:\s*\w+\]', '', markdown_text).strip()
 
   try:
-    conn = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'), timeout=10.0)
-    cursor = conn.cursor()
-    cursor.execute(
-      "SELECT recipient_name, message_text FROM whatsapp_proposals WHERE proposal_id = ?",
-      (proposal_id,),
-    )
-    row = cursor.fetchone()
-    conn.close()
-    if row:
-      recipient_name, message_text = row
+    proposal_details = db_tools.fetch_whatsapp_proposal(proposal_id, os.path.join(ROOT_DIR, 'whatsapp.db'))
+    if proposal_details:
+      recipient_name, message_text = proposal_details
       cleaned = (f"{cleaned}\n\n"
                  f"—\n"
                  f"📨 Pending WhatsApp Message\n"
                  f"To: {recipient_name}\n"
                  f"Message:\n> {message_text}")
-  except Exception as e:
+  except sqlite3.Error as e:
     logging.error(f"Error fetching proposal {proposal_id}: {e}")
+    raise RuntimeError(f"Error fetching proposal {proposal_id}: {e}") from e
 
   keyboard = InlineKeyboardMarkup([[
     InlineKeyboardButton("✅ Send", callback_data=f"wa_send_{proposal_id}"),
