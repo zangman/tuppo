@@ -300,7 +300,8 @@ async def msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
   llama_resp, pp, tp = await core_brain.get_llm_response(session_id, content)
 
   if llama_resp:
-    await send_long_message(context, update.effective_chat.id, llama_resp, pp, tp)
+    llama_resp, reply_markup = _handle_whatsapp_proposal(llama_resp)
+    await send_long_message(context, update.effective_chat.id, llama_resp, show_tps, pp, tp, reply_markup=reply_markup)
   else:
     await context.bot.send_message(
       chat_id=update.effective_chat.id,
@@ -308,51 +309,60 @@ async def msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def send_long_message(context, chat_id, markdown_text, pp=None, tp=None):
+def _handle_whatsapp_proposal(markdown_text):
+  """Check for a [Proposal: <id>] tag, fetch DB details, clean the text.
+
+  Returns (cleaned_text, reply_markup).
+  reply_markup is None if no proposal tag is found.
+  """
+  match = re.search(r'\[Proposal:\s*(\w+)\]', markdown_text)
+  if not match:
+    return markdown_text, None
+
+  proposal_id = match.group(1)
+  cleaned = re.sub(r'\s*\[Proposal:\s*\w+\]', '', markdown_text).strip()
+
+  try:
+    conn = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'), timeout=10.0)
+    cursor = conn.cursor()
+    cursor.execute(
+      "SELECT recipient_name, message_text FROM whatsapp_proposals WHERE proposal_id = ?",
+      (proposal_id,),
+    )
+    row = cursor.fetchone()
+    conn.close()
+    if row:
+      recipient_name, message_text = row
+      cleaned = (f"{cleaned}\n\n"
+                 f"—\n"
+                 f"📨 Pending WhatsApp Message\n"
+                 f"To: {recipient_name}\n"
+                 f"Message:\n> {message_text}")
+  except Exception as e:
+    logging.error(f"Error fetching proposal {proposal_id}: {e}")
+
+  keyboard = InlineKeyboardMarkup([[
+    InlineKeyboardButton("✅ Send", callback_data=f"wa_send_{proposal_id}"),
+    InlineKeyboardButton("❌ Cancel", callback_data=f"wa_cancel_{proposal_id}")
+  ]])
+  return cleaned, keyboard
+
+
+async def send_long_message(context, chat_id, markdown_text, show_tps=False, pp=None, tp=None, reply_markup=None):
   chunks = split_markdown(markdown_text, max_len=3500)
   for i, chunk in enumerate(chunks):
     chat_response, entities = tm.convert(chunk)
     if i == len(chunks) - 1 and show_tps and pp is not None and tp is not None:
       chat_response = f'{chat_response} (pp: {round(pp,2)}, tp: {round(tp,2)})'
 
-    # Check for WhatsApp message proposal tag
-    proposal_match = re.search(r'\[Proposal:\s*(\w+)\]', chat_response)
-    reply_markup = None
-    if proposal_match:
-      proposal_id = proposal_match.group(1)
-      # Strip the tag from the visible text
-      chat_response = re.sub(r'\s*\[Proposal:\s*\w+\]', '', chat_response).strip()
-
-      # Fetch exact proposal details from DB for coded confirmation
-      try:
-        conn = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'), timeout=10.0)
-        cursor = conn.cursor()
-        cursor.execute("SELECT recipient_name, message_text FROM whatsapp_proposals WHERE proposal_id = ?",
-                       (proposal_id,))
-        row = cursor.fetchone()
-        conn.close()
-        if row:
-          recipient_name, message_text = row
-          chat_response = (f"{chat_response}\n\n"
-                           f"—\n"
-                           f"📨 Pending WhatsApp Message\n"
-                           f"To: {recipient_name}\n"
-                           f"Message:\n> {message_text}")
-      except Exception as e:
-        logging.error(f"Error fetching proposal {proposal_id}: {e}")
-
-      keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton("✅ Send", callback_data=f"wa_send_{proposal_id}"),
-        InlineKeyboardButton("❌ Cancel", callback_data=f"wa_cancel_{proposal_id}")
-      ]])
-      reply_markup = keyboard
+    effective_markup = reply_markup if i == len(chunks) - 1 else None
 
     if chat_response.strip():
       await context.bot.send_message(
         chat_id=chat_id,
         text=chat_response,
         entities=[e.to_dict() for e in entities],
-        reply_markup=reply_markup,
+        reply_markup=effective_markup,
       )
 
 
