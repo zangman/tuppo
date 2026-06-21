@@ -69,6 +69,15 @@ def db_tools_db_path(tmp_path):
                  "timestamp DATETIME, "
                  "read_status TEXT"
                  ")")
+  cursor.execute("CREATE TABLE event_proposals ("
+                 "proposal_id TEXT, "
+                 "summary TEXT, "
+                 "start_iso TEXT, "
+                 "end_iso TEXT, "
+                 "description TEXT, "
+                 "requester_id TEXT, "
+                 "status TEXT"
+                 ")")
   conn.commit()
   conn.close()
   return str(db_path)
@@ -208,7 +217,7 @@ class TestHandleGetPendingMessages:
 # ── fetch_whatsapp_proposal ───────────────────────────────────────────
 
 
-class TestFetchWhatsappProposal:
+class TestGetWhatsappProposal:
 
   def test_found(self, db_tools_db_path):
     db_tools.handle_propose_whatsapp_message({
@@ -222,12 +231,189 @@ class TestFetchWhatsappProposal:
     conn.commit()
     conn.close()
 
-    result = db_tools.fetch_whatsapp_proposal(proposal_id, db_tools_db_path)
-    assert result == ("Alice", "Hello!")
+    result = db_tools.get_whatsapp_proposal(proposal_id, db_tools_db_path)
+    assert result == ("c1", "Alice", "Hello!", "pending")
 
   def test_not_found(self, db_tools_db_path):
-    result = db_tools.fetch_whatsapp_proposal("nonexistent", db_tools_db_path)
+    result = db_tools.get_whatsapp_proposal("nonexistent", db_tools_db_path)
     assert result is None
+
+
+# ── get_contact_by_chat_id ────────────────────────────────────────────
+
+
+class TestGetContactByChatId:
+
+  def test_found(self, db_tools_db_path):
+    _insert_contacts(db_tools_db_path, [
+      ("c1", "Alice", "2025-07-01"),
+    ])
+    result = db_tools.get_contact_by_chat_id("c1", db_tools_db_path)
+    assert result == "Alice"
+
+  def test_not_found(self, db_tools_db_path):
+    result = db_tools.get_contact_by_chat_id("missing", db_tools_db_path)
+    assert result is None
+
+
+# ── search_contacts_by_name ───────────────────────────────────────────
+
+
+class TestSearchContactsByName:
+
+  def test_no_matches(self, db_tools_db_path):
+    result = db_tools.search_contacts_by_name("Nobody", db_tools_db_path)
+    assert result == []
+
+  def test_partial_match(self, db_tools_db_path):
+    _insert_contacts(db_tools_db_path, [
+      ("c1", "Alice Smith", "2025-07-01"),
+      ("c2", "Bob Jones", "2025-07-01"),
+    ])
+    result = db_tools.search_contacts_by_name("Alice", db_tools_db_path)
+    assert len(result) == 1
+    assert result[0] == ("c1", "Alice Smith")
+
+  def test_multiple_matches(self, db_tools_db_path):
+    _insert_contacts(db_tools_db_path, [
+      ("c1", "Alice Smith", "2025-07-01"),
+      ("c2", "Alice Jones", "2025-07-01"),
+    ])
+    result = db_tools.search_contacts_by_name("Alice", db_tools_db_path)
+    assert len(result) == 2
+
+
+# ── find_contact_in_allowed ───────────────────────────────────────────
+
+
+class TestFindContactInAllowed:
+
+  def test_found(self, db_tools_db_path):
+    _insert_contacts(db_tools_db_path, [
+      ("c1@g.us", "Family Group", "2025-07-01"),
+      ("c2@g.us", "Work Group", "2025-07-01"),
+    ])
+    result = db_tools.find_contact_in_allowed("Family", ["c1@g.us", "c2@g.us"], db_tools_db_path)
+    assert result == "c1@g.us"
+
+  def test_not_found(self, db_tools_db_path):
+    _insert_contacts(db_tools_db_path, [
+      ("c1@g.us", "Family Group", "2025-07-01"),
+    ])
+    result = db_tools.find_contact_in_allowed("Work", ["c1@g.us"], db_tools_db_path)
+    assert result is None
+
+  def test_empty_allowed(self, db_tools_db_path):
+    result = db_tools.find_contact_in_allowed("Anything", [], db_tools_db_path)
+    assert result is None
+
+
+# ── list_contacts ─────────────────────────────────────────────────────
+
+
+class TestListContacts:
+
+  def test_all(self, db_tools_db_path):
+    _insert_contacts(db_tools_db_path, [
+      ("c1", "Alice", "2025-07-01"),
+      ("c2@g.us", "Family Group", "2025-07-01"),
+      ("status@broadcast", "Status", "2025-07-01"),
+    ])
+    result = db_tools.list_contacts(db_tools_db_path)
+    names = [row[0] for row in result]
+    assert "Alice" in names
+    assert "Family Group" in names
+    assert "Status" not in names
+
+  def test_groups_only(self, db_tools_db_path):
+    _insert_contacts(db_tools_db_path, [
+      ("c1", "Alice", "2025-07-01"),
+      ("c2@g.us", "Family Group", "2025-07-01"),
+    ])
+    result = db_tools.list_contacts(db_tools_db_path, 'groups')
+    assert len(result) == 1
+    assert result[0] == ("Family Group", "c2@g.us")
+
+  def test_private_only(self, db_tools_db_path):
+    _insert_contacts(db_tools_db_path, [
+      ("c1", "Alice", "2025-07-01"),
+      ("c2@g.us", "Family Group", "2025-07-01"),
+    ])
+    result = db_tools.list_contacts(db_tools_db_path, 'private')
+    assert len(result) == 1
+    assert result[0] == ("Alice", "c1")
+
+  def test_empty(self, db_tools_db_path):
+    result = db_tools.list_contacts(db_tools_db_path)
+    assert result == []
+
+
+# ── get_event_proposal ────────────────────────────────────────────────
+
+
+class TestGetEventProposal:
+
+  def test_found(self, db_tools_db_path):
+    conn = sqlite3.connect(db_tools_db_path)
+    conn.execute(
+      "INSERT INTO event_proposals (proposal_id, summary, start_iso, end_iso, description, requester_id, status) "
+      "VALUES (?, ?, ?, ?, ?, ?, ?)",
+      ("ep1", "Team Meeting", "2025-08-01T10:00", "2025-08-01T11:00", "Discuss Q3", "u1", "pending"),
+    )
+    conn.commit()
+    conn.close()
+    result = db_tools.get_event_proposal("ep1", db_tools_db_path)
+    assert result == ("Team Meeting", "2025-08-01T10:00", "2025-08-01T11:00", "Discuss Q3", "u1")
+
+  def test_not_found(self, db_tools_db_path):
+    result = db_tools.get_event_proposal("missing", db_tools_db_path)
+    assert result is None
+
+
+# ── update_event_proposal_status ──────────────────────────────────────
+
+
+class TestUpdateEventProposalStatus:
+
+  def test_update(self, db_tools_db_path):
+    conn = sqlite3.connect(db_tools_db_path)
+    conn.execute(
+      "INSERT INTO event_proposals (proposal_id, summary, start_iso, end_iso, description, requester_id, status) "
+      "VALUES (?, ?, ?, ?, ?, ?, ?)",
+      ("ep1", "Team Meeting", "2025-08-01T10:00", "2025-08-01T11:00", "Discuss Q3", "u1", "pending"),
+    )
+    conn.commit()
+    conn.close()
+    db_tools.update_event_proposal_status("ep1", "approved", db_tools_db_path)
+    conn = sqlite3.connect(db_tools_db_path)
+    cursor = conn.cursor()
+    cursor.execute("SELECT status FROM event_proposals WHERE proposal_id = ?", ("ep1",))
+    assert cursor.fetchone()[0] == "approved"
+    conn.close()
+
+
+# ── update_whatsapp_proposal_status ───────────────────────────────────
+
+
+class TestUpdateWhatsappProposalStatus:
+
+  def test_update(self, db_tools_db_path):
+    db_tools.handle_propose_whatsapp_message({
+      "chat_id": "c1",
+      "recipient_name": "Alice",
+      "message_text": "Hello!",
+    }, db_tools_db_path)
+    conn = sqlite3.connect(db_tools_db_path)
+    cursor = conn.cursor()
+    cursor.execute("SELECT proposal_id FROM whatsapp_proposals")
+    proposal_id = cursor.fetchone()[0]
+    conn.close()
+    db_tools.update_whatsapp_proposal_status(proposal_id, "sent", db_tools_db_path)
+    conn = sqlite3.connect(db_tools_db_path)
+    cursor = conn.cursor()
+    cursor.execute("SELECT status FROM whatsapp_proposals WHERE proposal_id = ?", (proposal_id,))
+    assert cursor.fetchone()[0] == "sent"
+    conn.close()
 
 
 # ── handle_clear_messages ─────────────────────────────────────────────

@@ -2,7 +2,6 @@ import asyncio
 import logging as py_logging
 import os
 import re
-import sqlite3
 
 import requests
 import telegramify_markdown as tm
@@ -100,15 +99,11 @@ async def wa_groups(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(chat_id=update.effective_chat.id, text="No groups configured for autoresponse.")
     return
   # Try to resolve group names from contacts
-  conn = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'), timeout=10.0)
-  cursor = conn.cursor()
   lines = ["Allowed groups for autoresponse:"]
+  db_path = os.path.join(ROOT_DIR, 'whatsapp.db')
   for gid in allowed:
-    cursor.execute("SELECT display_name FROM contacts WHERE chat_id = ?", (gid,))
-    row = cursor.fetchone()
-    name = row[0] if row else gid
+    name = db_tools.get_contact_by_chat_id(gid, db_path) or gid
     lines.append(f"- {name} ({gid})")
-  conn.close()
   await context.bot.send_message(chat_id=update.effective_chat.id, text="\n".join(lines))
 
 
@@ -118,11 +113,7 @@ async def wa_group_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return
   group_query = ' '.join(context.args)
   # Resolve group name to chatId using contacts table
-  conn = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'), timeout=10.0)
-  cursor = conn.cursor()
-  cursor.execute("SELECT chat_id, display_name FROM contacts WHERE display_name LIKE ?", (f"%{group_query}%",))
-  matches = cursor.fetchall()
-  conn.close()
+  matches = db_tools.search_contacts_by_name(group_query, os.path.join(ROOT_DIR, 'whatsapp.db'))
   if not matches:
     await context.bot.send_message(
       chat_id=update.effective_chat.id,
@@ -161,18 +152,7 @@ async def wa_group_remove(update: Update, context: ContextTypes.DEFAULT_TYPE):
   if group_query in allowed:
     removed = group_query
   else:
-    conn = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'), timeout=10.0)
-    cursor = conn.cursor()
-    if allowed:
-      placeholders = ','.join('?' * len(allowed))
-      cursor.execute(f"SELECT chat_id FROM contacts WHERE display_name LIKE ? AND chat_id IN ({placeholders})",
-                     (f"%{group_query}%",) + tuple(allowed))
-      row = cursor.fetchone()
-    else:
-      row = None
-    conn.close()
-    if row:
-      removed = row[0]
+    removed = db_tools.find_contact_in_allowed(group_query, allowed, os.path.join(ROOT_DIR, 'whatsapp.db'))
   if removed and removed in allowed:
     allowed.remove(removed)
     cfg.setdefault('whatsapp', {}).setdefault('autoresponder', {})['allowed_groups'] = allowed
@@ -184,25 +164,16 @@ async def wa_group_remove(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def wa_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
-  conn = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'), timeout=10.0)
-  cursor = conn.cursor()
   filter_type = ' '.join(context.args) if context.args else ''
 
   if filter_type.lower() == 'groups' or filter_type.lower() == 'group':
-    cursor.execute("SELECT display_name, chat_id FROM contacts WHERE chat_id LIKE '%@g.us' ORDER BY display_name")
     title = "WhatsApp Groups"
   elif filter_type.lower() == 'private' or filter_type.lower() == 'people':
-    cursor.execute(
-      "SELECT display_name, chat_id FROM contacts WHERE chat_id NOT LIKE '%@g.us' AND chat_id != 'status@broadcast' ORDER BY display_name"
-    )
     title = "WhatsApp Private Chats"
   else:
-    cursor.execute(
-      "SELECT display_name, chat_id FROM contacts WHERE chat_id != 'status@broadcast' ORDER BY display_name")
     title = "All WhatsApp Contacts"
 
-  rows = cursor.fetchall()
-  conn.close()
+  rows = db_tools.list_contacts(os.path.join(ROOT_DIR, 'whatsapp.db'), filter_type)
 
   if not rows:
     await context.bot.send_message(chat_id=update.effective_chat.id, text="No contacts found.")
@@ -218,47 +189,28 @@ async def handle_event_proposal(update: Update, context: ContextTypes.DEFAULT_TY
   query = update.callback_query
   await query.answer()
 
+  db_path = os.path.join(ROOT_DIR, 'whatsapp.db')
   data = query.data
   if data.startswith("app_"):
     proposal_id = data[4:]
-    conn = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'))
-    cursor = conn.cursor()
-    cursor.execute(
-      "SELECT summary, start_iso, end_iso, description, requester_id FROM event_proposals WHERE proposal_id = ?",
-      (proposal_id,))
-    row = cursor.fetchone()
-    conn.close()
+    row = db_tools.get_event_proposal(proposal_id, db_path)
 
     if row:
       summary, start, end, desc, req_id = row
       result = google_calendar.create_calendar_event(summary=summary, start_iso=start, end_iso=end, description=desc)
       await query.edit_message_text(text=f"✅ Event approved and created!\n\n{result}")
-
-      conn = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'))
-      cursor = conn.cursor()
-      cursor.execute("UPDATE event_proposals SET status = 'approved' WHERE proposal_id = ?", (proposal_id,))
-      conn.commit()
-      conn.close()
+      db_tools.update_event_proposal_status(proposal_id, 'approved', db_path)
     else:
       await query.edit_message_text(text="Error: Proposal not found.")
 
   elif data.startswith("rej_"):
     proposal_id = data[4:]
-    conn = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'))
-    cursor = conn.cursor()
-    cursor.execute("UPDATE event_proposals SET status = 'rejected' WHERE proposal_id = ?", (proposal_id,))
-    conn.commit()
-    conn.close()
+    db_tools.update_event_proposal_status(proposal_id, 'rejected', db_path)
     await query.edit_message_text(text="❌ Event request rejected.")
 
   elif data.startswith("wa_send_"):
     proposal_id = data[8:]
-    conn = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'), timeout=10.0)
-    cursor = conn.cursor()
-    cursor.execute("SELECT chat_id, recipient_name, message_text, status FROM whatsapp_proposals WHERE proposal_id = ?",
-                   (proposal_id,))
-    row = cursor.fetchone()
-    conn.close()
+    row = db_tools.get_whatsapp_proposal(proposal_id, db_path)
 
     if not row:
       await query.edit_message_text(text="Error: Proposal not found.", reply_markup=None)
@@ -273,10 +225,7 @@ async def handle_event_proposal(update: Update, context: ContextTypes.DEFAULT_TY
     try:
       resp = requests.post('http://localhost:3000/send-message', json={"chatId": chat_id, "text": f"🤖 {message_text}"})
       if resp.status_code == 200:
-        cursor = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'), timeout=10.0).cursor()
-        cursor.execute("UPDATE whatsapp_proposals SET status = 'sent' WHERE proposal_id = ?", (proposal_id,))
-        cursor.connection.commit()
-        cursor.connection.close()
+        db_tools.update_whatsapp_proposal_status(proposal_id, 'sent', db_path)
         await query.edit_message_text(text=f"✅ Message sent to {recipient_name}!", reply_markup=None)
       else:
         await query.edit_message_text(text=f"❌ Failed to send message: {resp.text}", reply_markup=None)
@@ -285,11 +234,7 @@ async def handle_event_proposal(update: Update, context: ContextTypes.DEFAULT_TY
 
   elif data.startswith("wa_cancel_"):
     proposal_id = data[10:]
-    conn = sqlite3.connect(os.path.join(ROOT_DIR, 'whatsapp.db'), timeout=10.0)
-    cursor = conn.cursor()
-    cursor.execute("UPDATE whatsapp_proposals SET status = 'cancelled' WHERE proposal_id = ?", (proposal_id,))
-    conn.commit()
-    conn.close()
+    db_tools.update_whatsapp_proposal_status(proposal_id, 'cancelled', db_path)
     await query.edit_message_text(text="❌ Message cancelled.", reply_markup=None)
 
 
@@ -328,15 +273,15 @@ def _handle_whatsapp_proposal(markdown_text):
   cleaned = re.sub(r'\s*\[Proposal:\s*\w+\]', '', markdown_text).strip()
 
   try:
-    proposal_details = db_tools.fetch_whatsapp_proposal(proposal_id, os.path.join(ROOT_DIR, 'whatsapp.db'))
+    proposal_details = db_tools.get_whatsapp_proposal(proposal_id, os.path.join(ROOT_DIR, 'whatsapp.db'))
     if proposal_details:
-      recipient_name, message_text = proposal_details
+      _, recipient_name, message_text, _ = proposal_details
       cleaned = (f"{cleaned}\n\n"
                  f"—\n"
                  f"📨 Pending WhatsApp Message\n"
                  f"To: {recipient_name}\n"
                  f"Message:\n> {message_text}")
-  except sqlite3.Error as e:
+  except RuntimeError as e:
     logging.error(f"Error fetching proposal {proposal_id}: {e}")
     raise RuntimeError(f"Error fetching proposal {proposal_id}: {e}") from e
 
