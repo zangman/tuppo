@@ -10,31 +10,11 @@ from absl import logging
 from croniter import croniter
 
 import core_brain
-import tools.whatsapp_summary as whatsapp_summary
+import util.get_time as get_time
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(ROOT_DIR, 'whatsapp.db')
 WHATSAPP_API_URL = 'http://localhost:3000/send-message'
-
-
-async def _send_llm_summary(bot, owner_id, task_id, transcript):
-  """Pipe a WhatsApp transcript through the LLM for summarization, then send to Telegram."""
-  session_id = f"tg_summary_{task_id}"
-  system_prompt = ("You are summarizing WhatsApp group messages for the owner. "
-                   "Provide a concise bulleted summary of key takeaways, action items, and any important updates. "
-                   "Do NOT provide a transcript — only a synthesized summary. "
-                   "Keep it brief and scannable.")
-  try:
-    summary, _, _ = await core_brain.get_llm_response(session_id, transcript, system_prompt_override=system_prompt)
-    if summary:
-      await bot.send_message(chat_id=owner_id, text=f"📅 Scheduled Summary:\n\n{summary}")
-    else:
-      await bot.send_message(chat_id=owner_id, text=f"📅 Scheduled Summary:\n\n{transcript}")
-  except Exception as e:
-    logging.error(f"LLM summarization failed for task {task_id}: {e}")
-    await bot.send_message(chat_id=owner_id, text=f"📅 Scheduled Summary:\n\n{transcript}")
-  finally:
-    core_brain.clear_session(session_id)
 
 
 async def run_scheduler_cycle(bot, owner_id):
@@ -64,15 +44,14 @@ async def run_scheduler_cycle(bot, owner_id):
       # Execute action
       if action == 'send_summary':
         logging.info('in send summary')
-        transcript = whatsapp_summary.get_new_messages(params.get('group'))
-        # If there are no new messages, send the message directly
-        if 'no new unread messages' in transcript.lower() or 'no chats found' in transcript.lower():
-          await bot.send_message(chat_id=owner_id, text=f"📅 Scheduled Summary:\n\n{transcript}")
-          logging.info('no new chats found')
-        else:
-          # Pipe the transcript through LLM for summarization
-          logging.info('sending llm summary')
-          await _send_llm_summary(bot, owner_id, task_id, transcript)
+        group = params.get('group')
+        cur_time = get_time.get_current_time_with_timezone()
+        prompt = (f"[Context: Current time is {cur_time}]\n\n"
+                  f"Please give me a summary of new messages from WhatsApp group '{group}'.")
+        session_id = f"tg_{owner_id}" if not str(owner_id).startswith("tg_") else owner_id
+        logging.info('sending llm summary')
+        response, _, _ = await core_brain.get_llm_response(session_id, prompt)
+        await bot.send_message(chat_id=owner_id, text=f"📅 Scheduled Summary:\n\n{response}")
 
       elif action == 'send_whatsapp_message':
         # Handle multiple recipients or single chat_id
