@@ -1,3 +1,6 @@
+// Suppress the punycode deprecation warning from puppeteer/whatsapp-web.js deps
+process.env.NO_DEPRECATION = 'punycode';
+
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const sqlite3 = require('sqlite3').verbose();
@@ -289,7 +292,14 @@ client.on('message_create', async (msg) => {
         );
         stmt.finalize();
     } catch (e) {
-        console.error('Error processing message:', e);
+        // puppeteer often throws 'r' errors when the WA Web page re-renders
+        // during evaluation (e.g. message deleted, chat scrolled away).
+        // These are harmless — the message is just skipped.
+        if (e.message === 'r' || e.message?.startsWith('r:')) {
+            console.warn('Skipping message (puppeteer page-state error):', e.message);
+        } else {
+            console.error('Error processing message:', e);
+        }
     }
 });
 

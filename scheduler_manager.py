@@ -18,6 +18,11 @@ DB_PATH = os.path.join(ROOT_DIR, 'whatsapp.db')
 WHATSAPP_API_URL = 'http://localhost:3000/send-message'
 
 
+async def send_formatted_message(bot, owner_id, msg):
+  for text, entities, _ in compose_long_message(msg):
+    await bot.send_message(chat_id=owner_id, text=text, entities=entities)
+
+
 async def run_scheduler_cycle(bot, owner_id):
   """
     Checks for pending tasks in the database and executes them.
@@ -52,8 +57,7 @@ async def run_scheduler_cycle(bot, owner_id):
         session_id = f"tg_{owner_id}" if not str(owner_id).startswith("tg_") else owner_id
         logging.info('sending llm summary')
         response, _, _ = await core_brain.get_llm_response(session_id, prompt)
-        for text, entities, _ in compose_long_message(f"📅 Scheduled Summary:\n\n{response}"):
-          await bot.send_message(chat_id=owner_id, text=text, entities=entities)
+        await send_formatted_message(bot, owner_id, f"📅 Scheduled Summary:\n\n{response}")
 
       elif action == 'send_whatsapp_message':
         # Handle multiple recipients or single chat_id
@@ -77,11 +81,11 @@ async def run_scheduler_cycle(bot, owner_id):
         status_msg = f"✅ Sent to {sent_ok} recipient(s)."
         if sent_fail > 0:
           status_msg += f" ❌ Failed: {sent_fail}."
-        await bot.send_message(chat_id=owner_id, text=f"📤 Scheduled WhatsApp message: {status_msg}")
+        await send_formatted_message(bot, owner_id, f"📤 Scheduled WhatsApp message: {status_msg}")
 
       elif action == 'send_telegram_reminder':
         text = params.get('message_text', 'Scheduled reminder!')
-        await bot.send_message(chat_id=owner_id, text=f"🔔 REMINDER: {text}")
+        await send_formatted_message(bot, owner_id, f"🔔 REMINDER: {text}")
 
       elif action == 'llm_task':
         prompt = params.get('prompt', 'Perform the scheduled task')
@@ -89,7 +93,7 @@ async def run_scheduler_cycle(bot, owner_id):
         # Use the admin session format 'tg_<id>' to ensure the LLM has tool access
         session_id = f"tg_{owner_id}" if not str(owner_id).startswith("tg_") else owner_id
         response, _, _ = await core_brain.get_llm_response(session_id, prompt)
-        await bot.send_message(chat_id=owner_id, text=f"🤖 Scheduled Task Result:\n\n{response}")
+        await send_formatted_message(bot, owner_id, f"🤖 Scheduled Task Result:\n\n{response}")
 
       # Handle Recurrence
       if cron:
