@@ -350,10 +350,19 @@ async def get_llm_response(session_id, user_input, system_prompt_override=None, 
       response.raise_for_status()
       full_resp = response.json()
     except HTTPError as e:
-      # Graceful failure if the LLM server doesn't support vision
-      if images and e.response is not None and e.response.status_code == 400:
-        raise RuntimeError("Image processing is not supported by the LLM server right now. "
-                           "Please try sending text instead.") from e
+      # Graceful failure if the LLM server doesn't support vision.
+      # HTTPError is only raised for non-2xx, so check if the last user
+      # message in this payload carries images.
+      last_user_msg = next(
+        (m for m in reversed(payload["messages"]) if m.get("role") == "user"),
+        None,
+      )
+      if last_user_msg and isinstance(last_user_msg.get("content"), list):
+        has_images = any(p.get("type") == "image_url" for p in last_user_msg["content"])
+        if has_images:
+          sessions[session_id].pop()  # remove the failed multi-part message
+          raise RuntimeError("Image processing is not supported by the LLM server right now. "
+                             "Please try sending text instead.") from e
       logging.error(f"API request failed: {e}")
       raise RuntimeError(f"API request failed: {e}") from e
     except (RequestException, JSONDecodeError) as e:
