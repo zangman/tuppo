@@ -5,7 +5,7 @@ import os
 
 import requests
 from absl import logging
-from requests.exceptions import JSONDecodeError, RequestException
+from requests.exceptions import HTTPError, JSONDecodeError, RequestException
 
 import tools.calc as calc
 import tools.fetch_page as fetch_page
@@ -247,6 +247,12 @@ def _limit_tokens(messages: list, max_tokens: int = _MAX_CONTEXT_TOKENS) -> list
   # Estimate total tokens (skip system prompt from the count)
   def _msg_tokens(msg):
     content = msg.get('content', '') or ''
+    if isinstance(content, list):
+      # Multi-part (vision) content — estimate tokens from text + image overhead
+      text_parts = ''.join(p.get('text', '') for p in content if p.get('type') == 'text')
+      image_count = sum(1 for p in content if p.get('type') == 'image_url')
+      # ~768 tokens per image (standard vision model tile cost)
+      content = text_parts + 'x' * (image_count * 768 * 4)
     # For assistant messages with tool_calls, count the arguments too
     tool_calls = msg.get('tool_calls', [])
     for tc in tool_calls:
@@ -294,14 +300,25 @@ def _limit_tokens(messages: list, max_tokens: int = _MAX_CONTEXT_TOKENS) -> list
   return [messages[0]] + messages[evict_end:]
 
 
-async def get_llm_response(session_id, user_input, system_prompt_override=None):
+async def get_llm_response(session_id, user_input, system_prompt_override=None, images=None):
   if session_id not in sessions:
     sessions[session_id] = copy.deepcopy(_STARTER_MESSAGES)
 
   if system_prompt_override:
     sessions[session_id][0]['content'] = system_prompt_override
 
-  sessions[session_id].append({'role': 'user', 'content': user_input})
+  if images:
+    content_parts = [{"type": "text", "text": user_input}]
+    for img_b64, mime in images:
+      content_parts.append({
+        "type": "image_url",
+        "image_url": {
+          "url": f"data:{mime};base64,{img_b64}"
+        },
+      })
+    sessions[session_id].append({"role": "user", "content": content_parts})
+  else:
+    sessions[session_id].append({'role': 'user', 'content': user_input})
 
   # RBAC: Select tool list based on session ID
   if session_id.startswith("tg_"):
@@ -332,6 +349,13 @@ async def get_llm_response(session_id, user_input, system_prompt_override=None):
       response = requests.post(_URL, json=payload, headers=_HEADERS)
       response.raise_for_status()
       full_resp = response.json()
+    except HTTPError as e:
+      # Graceful failure if the LLM server doesn't support vision
+      if images and e.response is not None and e.response.status_code == 400:
+        raise RuntimeError("Image processing is not supported by the LLM server right now. "
+                           "Please try sending text instead.") from e
+      logging.error(f"API request failed: {e}")
+      raise RuntimeError(f"API request failed: {e}") from e
     except (RequestException, JSONDecodeError) as e:
       logging.error(f"API request failed: {e}")
       raise RuntimeError(f"API request failed: {e}") from e

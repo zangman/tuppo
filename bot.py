@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import logging as py_logging
 import os
 import re
@@ -248,15 +249,27 @@ async def _send_error_message(context, chat_id):
 async def msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
   session_id = f"tg_{update.effective_chat.id}"
   cur_time = get_time.get_current_time_with_timezone()
-  content = f'[Context: Current time is {cur_time}]\n\n{update.message.text}'
+
+  # Handle photos — download and base64-encode for vision
+  images = None
+  if update.message.photo:
+    photo_file = update.message.photo[-1]
+    file = await photo_file.get_file()
+    photo_bytes = await file.download_as_bytearray()
+    img_b64 = base64.b64encode(photo_bytes).decode('utf-8')
+    images = [(img_b64, 'image/jpeg')]
+
+  text = update.message.caption if update.message.caption else (
+    update.message.text if update.message.text else 'Describe this image.')
+  content = f'[Context: Current time is {cur_time}]\n\n{text}'
 
   try:
-    llama_resp, pp, tp = await core_brain.get_llm_response(session_id, content)
+    llama_resp, pp, tp = await core_brain.get_llm_response(session_id, content, images=images)
     llama_resp, reply_markup = _handle_whatsapp_proposal(llama_resp)
-    for text, entities, markup in compose_long_message(llama_resp, show_tps, pp, tp, reply_markup=reply_markup):
+    for text_chunk, entities, markup in compose_long_message(llama_resp, show_tps, pp, tp, reply_markup=reply_markup):
       await context.bot.send_message(
         chat_id=update.effective_chat.id,
-        text=text,
+        text=text_chunk,
         entities=entities,
         reply_markup=markup,
       )
@@ -347,7 +360,7 @@ def main(argv):
   wa_group_add_handler = CommandHandler('wa_group_add', wa_group_add)
   wa_group_remove_handler = CommandHandler('wa_group_remove', wa_group_remove)
   wa_list_handler = CommandHandler('wa_list', wa_list)
-  msg_handler = MessageHandler(filters.TEXT & (~filters.COMMAND), msg)
+  msg_handler = MessageHandler((filters.TEXT | filters.PHOTO) & (~filters.COMMAND), msg)
   health_handler = CommandHandler('health', health)
   proposal_handler = CallbackQueryHandler(handle_event_proposal)
   application.add_handler(start_handler)
@@ -368,4 +381,3 @@ def main(argv):
 
 if __name__ == '__main__':
   app.run(main)
-
