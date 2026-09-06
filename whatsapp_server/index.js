@@ -173,6 +173,22 @@ client.on('ready', () => {
     console.log('WhatsApp Client is ready and authenticated!');
 });
 
+// Look up a chat's display name from the contacts table. Used as a fallback
+// when resolving the Chat object fails, so messages are still logged under
+// the correct name.
+function getContactName(chatId) {
+    return new Promise((resolve) => {
+        db.get('SELECT display_name FROM contacts WHERE chat_id = ?', [chatId], (err, row) => {
+            if (err) {
+                console.error(`Error looking up contact name for ${chatId}: ${err.message}`);
+                resolve(null);
+            } else {
+                resolve(row && row.display_name ? row.display_name : null);
+            }
+        });
+    });
+}
+
 // Message Listener
 client.on('message_create', async (msg) => {
     try {
@@ -194,21 +210,60 @@ client.on('message_create', async (msg) => {
             return;
         }
 
-        const chat = await msg.getChat();
-        const chatType = chat.isGroup ? 'Group' : 'Private';
+        // Derive the chat ID straight from the message. This always works and
+        // lets us keep logging even when Chat object resolution fails below.
+        const chatId = msg.fromMe ? (msg.to || msg.from) : (msg.from || msg.to);
+        if (!chatId) {
+            console.warn(`Message ${msg.id._serialized} has no chat ID, skipping`);
+            return;
+        }
+        const isGroup = chatId.endsWith('@g.us');
+        const isStatus = chatId === 'status@broadcast';
+        const chatType = isGroup ? 'Group' : 'Private';
+
+        // Resolving the Chat object can throw: since a mid-July WA Web page
+        // update, WAWebFindChatAction.findOrCreateLatestChat() rejects with an
+        // 'r' error for chats not present in the in-memory chat store. That
+        // used to silently drop EVERY group/private message (only status
+        // broadcasts survived, because that chat is always in the store).
+        // Never let a chat resolution failure block the DB insert.
+        let chat = null;
+        try {
+            chat = await msg.getChat();
+        } catch (e) {
+            console.error(`getChat() failed for ${chatId}: ${e.message || e}`);
+        }
+        if (!chat) {
+            // One retry — the in-memory chat store may catch up a moment later.
+            await new Promise((resolve) => setTimeout(resolve, 1500));
+            try {
+                chat = await msg.getChat();
+            } catch (e) {
+                console.error(`getChat() retry failed for ${chatId}: ${e.message || e}`);
+            }
+        }
+
+        const groupId = chat && chat.id ? chat.id._serialized : chatId;
+        let groupName = chat && chat.name ? chat.name : null;
+        if (!groupName) {
+            groupName = await getContactName(groupId);
+        }
+        if (!groupName) {
+            groupName = 'Unknown Chat';
+        }
 
         const messageData = {
             message_id: msg.id._serialized,
-            group_id: chat.id._serialized,
-            group_name: chat.name || 'Unknown Chat',
+            group_id: groupId,
+            group_name: groupName,
             sender: msg.author || msg.from,
             text: textContent,
         };
 
-        // Push to Python Agent if it's a private chat
-        if (!chat.isGroup) {
+        // Push to Python Agent if it's a private chat (never for status updates)
+        if (!isGroup && !isStatus) {
             axios.post(AGENT_WEBHOOK_URL, {
-                chatId: chat.id._serialized,
+                chatId: groupId,
                 sender: messageData.sender,
                 text: textContent,
                 messageId: messageData.message_id
@@ -217,9 +272,8 @@ client.on('message_create', async (msg) => {
             });
         }
         // For group chats: check if the owner is @mentioned or replied to
-        else if (ownerWhatsAppId && !msg.fromMe) {
+        else if (isGroup && ownerWhatsAppId && !msg.fromMe) {
             const config = loadConfig();
-            const groupId = chat.id._serialized;
 
             // Check if this group is in the allowed list
             const allowedGroups = config.whatsapp?.autoresponder?.allowed_groups || [];
@@ -292,14 +346,10 @@ client.on('message_create', async (msg) => {
         );
         stmt.finalize();
     } catch (e) {
-        // puppeteer often throws 'r' errors when the WA Web page re-renders
-        // during evaluation (e.g. message deleted, chat scrolled away).
-        // These are harmless — the message is just skipped.
-        if (e.message === 'r' || e.message?.startsWith('r:')) {
-            console.warn('Skipping message (puppeteer page-state error):', e.message);
-        } else {
-            console.error('Error processing message:', e);
-        }
+        // Log the FULL error. (An earlier version treated 'r' errors as
+        // harmless and skipped the message — that silently dropped every
+        // group/private message for weeks.)
+        console.error('Error processing message:', e);
     }
 });
 

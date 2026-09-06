@@ -117,20 +117,25 @@ def get_new_messages(chat_name_query: str = None) -> str:
 
     full_output = "\n".join(transcript_lines)
 
-    # Truncate if output is too long
+    # Truncate if output is too long — keep the NEWEST messages (oldest are
+    # dropped) so the summary covers the most recent activity.
     if len(full_output) > _MAX_OUTPUT_CHARS:
+      # Reserve room for the header (6-digit placeholders over-reserve)
+      header = "SUMMARY DATA (Truncated, showing 999999/999999 most recent):\n"
+      budget = _MAX_OUTPUT_CHARS - len(header)
       truncated_lines = []
       current_len = 0
-      messages_shown = 0
       total_count = len(transcript_lines)
-      for line in transcript_lines:
-        if current_len + len(line) + 1 > _MAX_OUTPUT_CHARS:
+      for line in reversed(transcript_lines):
+        if current_len + len(line) + 1 > budget:
           break
         truncated_lines.append(line)
         current_len += len(line) + 1
-        messages_shown += 1
+      truncated_lines.reverse()
+      messages_shown = len(truncated_lines)
       conn.close()
-      return f"SUMMARY DATA (Truncated {messages_shown}/{total_count}):\n" + "\n".join(truncated_lines)
+      return (f"SUMMARY DATA (Truncated, showing {messages_shown}/{total_count} most recent):\n" +
+              "\n".join(truncated_lines))
 
     conn.close()
     return "SUMMARY DATA:\n" + full_output
@@ -200,22 +205,27 @@ def get_chat_history(chat_name_query: str, timeframe_hours: int = 24, search_tex
 
     full_output = "\n".join(transcript_lines)
 
-    # Truncate if output is too long for Telegram
+    # Truncate if output is too long for Telegram — keep the NEWEST messages
+    # (oldest are dropped) so recent activity is never silently lost.
     if len(full_output) > _MAX_OUTPUT_CHARS:
-      # Rebuild with a message count note
-      truncated_lines = [header_parts[0]]
-      current_len = len(truncated_lines[0])
-      messages_shown = 0
-      for msg in messages:
+      header = header_parts[0]
+      # Reserve room for the header and the truncation note
+      note = "\n[Truncated: showing 999999 of 999999 most recent messages]"
+      budget = _MAX_OUTPUT_CHARS - len(header) - len(note)
+      kept_lines = []
+      current_len = 0
+      for msg in reversed(messages):
         sender, text, timestamp = msg
         time_str = _format_time_local(timestamp)
         line = f"[{time_str}] {sender}: {text}"
-        if current_len + len(line) + 1 > _MAX_OUTPUT_CHARS:
+        if current_len + len(line) + 1 > budget:
           break
-        truncated_lines.append(line)
+        kept_lines.append(line)
         current_len += len(line) + 1
-        messages_shown += 1
-      truncated_lines.append(f"\n[Truncated: showing {messages_shown} of {total_count} messages]")
+      kept_lines.reverse()
+      messages_shown = len(kept_lines)
+      truncated_lines = [header] + kept_lines
+      truncated_lines.append(f"\n[Truncated: showing {messages_shown} of {total_count} most recent messages]")
       conn.close()
       return "\n".join(truncated_lines)
 

@@ -340,7 +340,7 @@ class TestGetChatHistory:
 class TestTruncation:
 
   def test_new_messages_truncation(self, tmp_db_path, monkeypatch, mock_config):
-    """When output exceeds _MAX_OUTPUT_CHARS, only first N messages are shown."""
+    """When output exceeds _MAX_OUTPUT_CHARS, the NEWEST messages are kept."""
     _patch_db_path(monkeypatch, tmp_db_path)
     # Insert many long messages to exceed 3500 chars
     rows = []
@@ -353,9 +353,12 @@ class TestTruncation:
     result = ws.get_new_messages("Big Chat")
     assert len(result) <= ws._MAX_OUTPUT_CHARS + 50  # small tolerance for header
     assert "Truncated" in result
+    # Newest messages are kept, oldest are dropped
+    assert "Sender99" in result
+    assert "Sender0" not in result
 
   def test_chat_history_truncation(self, tmp_db_path, monkeypatch, mock_config):
-    """When history output exceeds _MAX_OUTPUT_CHARS, it is truncated."""
+    """When history output exceeds _MAX_OUTPUT_CHARS, the NEWEST are kept."""
     _patch_db_path(monkeypatch, tmp_db_path)
     rows = []
     for i in range(100):
@@ -366,6 +369,9 @@ class TestTruncation:
     result = ws.get_chat_history("Big Chat", timeframe_hours=48)
     assert len(result) <= ws._MAX_OUTPUT_CHARS + 50
     assert "Truncated" in result
+    # Newest messages are kept, oldest are dropped
+    assert "Sender99" in result
+    assert "Sender0" not in result
 
 
 # ── Edge cases ──────────────────────────────────────────────────────
