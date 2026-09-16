@@ -14,6 +14,7 @@ import uuid
 import pytz
 import requests
 from absl import logging
+from croniter import croniter
 
 import core_brain
 import util.config as config
@@ -61,6 +62,34 @@ def normalize_execution_time(execution_time):
     logging.error(f"Error parsing execution_time {execution_time}: {e}")
     return None, (f"Error: could not parse execution_time '{execution_time}'. "
                   "Please provide a valid ISO timestamp (e.g., 2025-06-15T09:00:00).")
+
+
+def compute_next_run_utc(cron, now_utc, tz_name='UTC'):
+  """Compute the next fire time for a cron expression, as a UTC ISO string.
+
+  Cron expressions from the schedule_* tools are authored in the owner's
+  local timezone (e.g. '0 22 * * *' = 10PM daily local time). This helper
+  interprets the cron in that timezone, then converts the result to UTC so
+  DB comparisons stay consistent.
+
+  Args:
+    cron: standard cron expression string (e.g., '0 22 * * *').
+    now_utc: aware datetime in UTC.
+    tz_name: IANA timezone name to interpret the cron in (e.g., 'Asia/Singapore').
+
+  Returns:
+    UTC ISO datetime string for the next fire time.
+
+  Raises:
+    pytz.exceptions.UnknownTimeZoneError: if tz_name is not a valid IANA name.
+    ValueError: if the cron expression is invalid.
+  """
+  tz = pytz.timezone(tz_name)
+  now_local = now_utc.astimezone(tz)
+  next_local = croniter(cron, now_local).get_next(datetime.datetime)
+  if next_local.tzinfo is None:
+    next_local = tz.localize(next_local)
+  return next_local.astimezone(pytz.utc).isoformat()
 
 
 def flatten_schedule_params(args):

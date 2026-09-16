@@ -7,10 +7,11 @@ import sqlite3
 import pytz
 import requests
 from absl import logging
-from croniter import croniter
 
 import core_brain
+import util.config as config
 import util.get_time as get_time
+import util.scheduling as scheduling
 from util.message import compose_long_message
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -29,6 +30,15 @@ async def run_scheduler_cycle(bot, owner_id):
     """
   # Use UTC for consistent DB comparison
   now_utc = datetime.datetime.now(pytz.utc)
+
+  # Cron expressions are authored in the owner's local timezone (see the
+  # schedule_* tool docs); resolve it once per cycle, falling back to UTC.
+  owner_tz_name = 'UTC'
+  try:
+    owner_tz_name = config.load_config().get('owner', {}).get('timezone') or 'UTC'
+    pytz.timezone(owner_tz_name)
+  except (pytz.exceptions.UnknownTimeZoneError, AttributeError) as e:
+    logging.error(f"Scheduler: invalid owner timezone, using UTC for cron times: {e}")
 
   conn = sqlite3.connect(DB_PATH)
   cursor = conn.cursor()
@@ -97,13 +107,10 @@ async def run_scheduler_cycle(bot, owner_id):
 
       # Handle Recurrence
       if cron:
-        # Calculate next run time using croniter
-        # We use UTC for calculation to keep DB offsets consistent
-        iter = croniter(cron, now_utc)
-        next_run = iter.get_next(datetime.datetime)
-
-        cursor.execute("UPDATE scheduled_tasks SET execution_time = ? WHERE task_id = ?",
-                       (next_run.isoformat(), task_id))
+        # Cron expressions are in the owner's local timezone; compute the
+        # next run in that timezone and store it as UTC for DB consistency.
+        next_run = scheduling.compute_next_run_utc(cron, now_utc, owner_tz_name)
+        cursor.execute("UPDATE scheduled_tasks SET execution_time = ? WHERE task_id = ?", (next_run, task_id))
       else:
         # Mark one-time task as completed
         cursor.execute("UPDATE scheduled_tasks SET status = 'completed' WHERE task_id = ?", (task_id,))

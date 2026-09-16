@@ -1,5 +1,6 @@
 """Tests for util/scheduling.py."""
 
+import datetime
 import json
 import sqlite3
 import sys
@@ -617,3 +618,38 @@ class TestHandleCancelScheduledTask:
     status = cursor.fetchone()[0]
     conn.close()
     assert status == "cancelled"
+
+
+# ── compute_next_run_utc ──────────────────────────────────────────────
+
+
+class TestComputeNextRunUtc:
+  """Cron expressions are interpreted in the owner's local timezone."""
+
+  def test_sgt_daily_10pm_regression(self):
+    # '0 22 * * *' means 10PM SGT, not 10PM UTC (the 6AM-summary bug).
+    now_utc = pytz.utc.localize(datetime.datetime(2026, 9, 16, 22, 0, 30))
+    result = sched.compute_next_run_utc('0 22 * * *', now_utc, 'Asia/Singapore')
+    assert result == '2026-09-17T14:00:00+00:00'  # 10PM SGT = 14:00 UTC
+
+  def test_utc_timezone(self):
+    now_utc = pytz.utc.localize(datetime.datetime(2026, 9, 16, 22, 0, 30))
+    result = sched.compute_next_run_utc('0 22 * * *', now_utc, 'UTC')
+    assert result == '2026-09-17T22:00:00+00:00'
+
+  def test_default_timezone_is_utc(self):
+    now_utc = pytz.utc.localize(datetime.datetime(2026, 9, 16, 22, 0, 30))
+    result = sched.compute_next_run_utc('0 22 * * *', now_utc)
+    assert result == '2026-09-17T22:00:00+00:00'
+
+  def test_dst_fallback_transition(self):
+    # Base is 09:30 EDT (DST still active). The next local 9AM lands after
+    # the US fall-back, so it must resolve as EST: Nov 1 09:00 EST = 14:00 UTC.
+    now_utc = pytz.utc.localize(datetime.datetime(2026, 10, 31, 13, 30))
+    result = sched.compute_next_run_utc('0 9 * * *', now_utc, 'America/New_York')
+    assert result == '2026-11-01T14:00:00+00:00'
+
+  def test_unknown_timezone_raises(self):
+    now_utc = pytz.utc.localize(datetime.datetime(2026, 9, 16, 22, 0, 30))
+    with pytest.raises(pytz.exceptions.UnknownTimeZoneError):
+      sched.compute_next_run_utc('0 22 * * *', now_utc, 'Not/AZone')
