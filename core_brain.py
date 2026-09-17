@@ -12,6 +12,7 @@ import tools.fetch_page as fetch_page
 import tools.gmail as gmail
 import tools.google_calendar as google_calendar
 import tools.owner_profile as owner_profile
+import tools.rubiks_scramble as rubiks_scramble
 import tools.searxng_search as searxng_search
 import tools.whatsapp_summary as whatsapp_summary
 import util.config as config
@@ -110,12 +111,17 @@ def _validate_tool_access(tool_name, allowed_tools):
 
 
 async def _handle_basic_tools(tool_name, args):
-  """Handle calc, searxng_search, fetch_page. Returns result string or None."""
+  """Handle calc, searxng_search, fetch_page, rubiks_scramble. Returns result string or None."""
   if tool_name == 'calc':
     try:
       ans = calc.do_calc(args['operand1'], args['operand2'], args['operator'])
       return ans
     except (ZeroDivisionError, ValueError) as e:
+      return str(e)
+  elif tool_name == 'rubiks_scramble':
+    try:
+      return rubiks_scramble.get_scramble(args.get('move_count'))
+    except ValueError as e:
       return str(e)
   elif tool_name == 'searxng_search':
     results = await asyncio.to_thread(searxng_search.search, args['query'], args.get('num_results', 5))

@@ -4,7 +4,7 @@ Three tiers of tool access, determined by session ID prefix:
 
   PUBLIC_TOOLS    — available to all sessions (3 tools: calc, searxng_search, fetch_page)
   WHATSAPP_TOOLS  — PUBLIC_TOOLS + calendar availability & proposal (5 tools total)
-  ADMIN_TOOLS     — PUBLIC_TOOLS + full admin suite (20 tools total)
+  ADMIN_TOOLS     — PUBLIC_TOOLS + full admin suite (21 tools total)
 
 Session routing:
   - session_id starts with "tg_" → ADMIN_TOOLS
@@ -675,6 +675,24 @@ ADMIN_TOOLS = PUBLIC_TOOLS + [
           }
         },
         "required": ["message_ids"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name":
+        "rubiks_scramble",
+      "description":
+        "Generate a random Rubik's cube (3x3x3) scramble following WCA rules (no two consecutive moves on the same axis). Use when the user asks for a cube scramble. Returns the move sequence (e.g. \"L B' D' L' F U' ...\"). Admin only.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "move_count": {
+            "type": "integer",
+            "description": "Number of moves to generate (default 25, max 100)"
+          }
+        }
       }
     }
   },

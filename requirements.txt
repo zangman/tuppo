@@ -56,3 +56,4 @@ google-auth
 google-auth-oauthlib
 fastapi
 uvicorn
+# rubiks — local package: ./v/bin/pip install ../rubiks
